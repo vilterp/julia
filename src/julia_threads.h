@@ -203,6 +203,8 @@ typedef struct _jl_tls_states_t {
     // gc_state = 2 means the thread is running unmanaged code that can be
     //              execute at the same time with the GC.
     int8_t gc_state; // read from foreign threads
+    // if defined, write a heap profile to this path when done garbage collecting
+    char *gc_heap_profile_path;
     // execution of certain certain impure
     // statements is prohibited from certain
     // callbacks (such as generated functions)

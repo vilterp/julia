@@ -673,6 +673,8 @@ static inline void gc_scrub(void)
 }
 #endif
 
+void _jl_gc_write_heap_profile(char *path);
+
 #ifdef OBJPROFILE
 void objprofile_count(void *ty, int old, int sz) JL_NOTSAFEPOINT;
 void objprofile_printall(void);

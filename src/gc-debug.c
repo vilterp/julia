@@ -708,6 +708,20 @@ void objprofile_printall(void)
 }
 #endif
 
+void _jl_gc_write_heap_profile(char *path)
+{
+    // TODO: actually write profile
+}
+
+// TODO: how do I pass in a string?
+// TODO: ccall this from Julia
+void jl_trigger_heap_snapshot(jl_ptls_t ptls, char *path)
+{
+    ptls->gc_heap_profile_path = path;
+    // TODO: collect
+    ptls->gc_heap_profile_path = NULL;
+}
+
 #if defined(GC_TIME) || defined(GC_FINAL_STATS)
 STATIC_INLINE double jl_ns2ms(int64_t t)
 {

@@ -94,6 +94,16 @@ so-called young objects.
 gc(full::Bool=true) =
     ccall(:jl_gc_collect, Cvoid, (Cint,), full ? GC_FULL : GC_INCREMENTAL)
 
+
+"""
+    GC.grab_objprofile()
+
+Print a summary of objects on the heap to stderr.
+"""
+grab_objprofile() =
+    ccall(:jl_grab_objprofile, Cvoid, ())
+
+
 """
     GC.enable(on::Bool)
 

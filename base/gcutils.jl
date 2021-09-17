@@ -105,6 +105,10 @@ Control whether garbage collection is enabled using a boolean argument (`true` f
 """
 enable(on::Bool) = ccall(:jl_gc_enable, Int32, (Int32,), on) != 0
 
+function take_heap_snapshot(io::IOStream)
+    ccall(:jl_gc_take_heap_snapshot, Cvoid, (Ptr{Cvoid},), io.handle)
+end
+
 """
     GC.enable_finalizers(on::Bool)
 

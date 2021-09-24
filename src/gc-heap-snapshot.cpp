@@ -84,8 +84,9 @@ struct Node {
     // https://github.com/nodejs/from_node/blob/5fd7a72e1c4fbaf37d3723c4c81dce35c149dc84/deps/v8/include/v8-profiler.h#L739-L745
     int detachedness;  // 0 - unknown,  1 - attached;  2 - detached
 
-    // Book-keeping fields (not used for serialization)
-    vector<Edge> edges; // For asserting that we built the edges in the right order
+    // edges outward from this node
+    // keyed by the memory address of the object we're pointing outward to
+    unordered_map<void *, Edge> edges;
 };
 
 
@@ -194,7 +195,7 @@ void _add_internal_root(HeapSnapshot *snapshot) {
         0, // int detachedness;  // 0 - unknown,  1 - attached;  2 - detached
 
         // outgoing edges
-        vector<Edge>(),
+        unordered_map<void *, Edge>(),
     };
     snapshot->nodes.push_back(internal_root);
 }
@@ -262,7 +263,7 @@ void record_node_to_gc_snapshot(jl_value_t *a) JL_NOTSAFEPOINT {
         0, // int detachedness;  // 0 - unknown,  1 - attached;  2 - detached
 
         // outgoing edges
-        vector<Edge>(),
+        unordered_map<void *, Edge>(),
     };
     g_snapshot->nodes.push_back(from_node);
 }
@@ -277,11 +278,11 @@ void _gc_heap_snapshot_record_root(jl_value_t *root, char *name) {
     auto edge_type = g_snapshot->edge_types.find_or_create_string_id("internal");
     auto edge_label = g_snapshot->names.find_or_create_string_id(name);
 
-    internal_root.edges.push_back(Edge{
+    internal_root.edges[(void*)root] = Edge{
         edge_type,
         edge_label,
         to_node_idx,
-    });
+    };
 
     g_snapshot->num_edges++;
 }
@@ -346,11 +347,11 @@ static inline void _record_gc_edge(const char *node_type, const char *edge_type,
     // TODO: can these ever disagree?:
     from_node.type = g_snapshot->node_types.find_or_create_string_id(node_type);
 
-    from_node.edges.push_back(Edge{
+    from_node.edges[(void*)b] = Edge{
         g_snapshot->edge_types.find_or_create_string_id(edge_type),
         name_or_index,
         g_snapshot->node_ptr_to_index_map[b], // to
-    });
+    };
 
     g_snapshot->num_edges += 1;
     count_edges += 1;  // debugging
@@ -398,7 +399,8 @@ void serialize_heap_snapshot(JL_STREAM *stream, HeapSnapshot &snapshot) {
     jl_printf(stream, "\"edges\":[");
     bool first_edge = true;
     for (const auto &from_node : snapshot.nodes) {
-        for (const auto &edge : from_node.edges) {
+        for (const auto &address_and_edge : from_node.edges) {
+            auto edge = address_and_edge.second;
             if (first_edge) {
                 first_edge = false;
             } else {

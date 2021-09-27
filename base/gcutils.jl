@@ -113,7 +113,7 @@ Devtools Heap Snapshot viewer (.heapsnapshot extension), to the given
 IO stream.
 """
 function take_heap_snapshot(io)
-    ccall(:jl_gc_take_heap_snapshot, Cvoid, (Ptr{Cvoid},), io.handle)
+    ccall(:jl_gc_take_heap_snapshot, Cvoid, (Ptr{Cvoid},), (io:: IOStream).handle::Ptr{Cvoid})
 end
 
 """

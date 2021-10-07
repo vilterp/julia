@@ -5,6 +5,7 @@
 
 #include "options.h"
 #include "julia_locks.h"
+#include "gc-alloc-profiler.h"
 #include <uv.h>
 #if !defined(_WIN32)
 #include <unistd.h>
@@ -360,6 +361,9 @@ STATIC_INLINE jl_value_t *jl_gc_alloc_(jl_ptls_t ptls, size_t sz, void *ty)
         v = jl_gc_big_alloc(ptls, allocsz);
     }
     jl_set_typeof(v, ty);
+
+    record_allocated_value(v, sz);
+
     return v;
 }
 

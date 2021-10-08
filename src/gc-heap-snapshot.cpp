@@ -182,7 +182,7 @@ void _add_internal_root(HeapSnapshot *snapshot) {
 }
 
 JL_STREAM *garbage_output_stream = 0;
-// TODO: keep map
+unordered_map<jl_datatype_t*, size_t> garbage_by_type;
 
 JL_DLLEXPORT void jl_set_garbage_output_stream(JL_STREAM *stream) {
     garbage_output_stream = stream;
@@ -190,12 +190,47 @@ JL_DLLEXPORT void jl_set_garbage_output_stream(JL_STREAM *stream) {
 
 void report_gc_started() {
     if (garbage_output_stream) {
+        garbage_by_type.clear();
         jl_printf(garbage_output_stream, "==================================\n");
     }
 }
 
 void report_gc_finished() {
-    // TODO: print stats
+    for (auto entry : garbage_by_type) {
+        if (
+            (size_t)entry.first >= 0x0000000020000000 &&
+            (size_t)entry.first->name >= 0x0000000020000000 &&
+            (size_t)entry.first->name->name >= 0x0000000020000000
+        ) {
+            // jl_printf(JL_STDERR, "first: %p\n", entry.first);
+            // jl_printf(JL_STDERR, "first->name: %p\n", entry.first->name);
+            // jl_printf(JL_STDERR, "first->name->name: %p\n", entry.first->name->name);
+            // jl_printf(
+            //     garbage_output_stream,
+            //     "%s: %zu\n",
+            //     jl_symbol_name(entry.first->name->name),
+            //     entry.second
+            // );
+
+            jl_datatype_t *type = entry.first;
+
+            ios_t str_;
+            ios_mem(&str_, 1024);
+            JL_STREAM* str = (JL_STREAM*)&str_;
+
+            jl_static_show(str, (jl_value_t*)type);
+
+            string type_str = string((const char*)str_.buf, str_.size);
+            ios_close(&str_);
+
+            jl_printf(
+                garbage_output_stream,
+                "%s: %zu\n",
+                type_str.c_str(),
+                entry.second
+            );
+        }
+    }
 }
 
 void record_garbage_value(jl_taggedvalue_t *tagged_val) {
@@ -226,20 +261,13 @@ void record_garbage_value(jl_taggedvalue_t *tagged_val) {
             name = jl_string_data(val);
         } else if (jl_is_symbol(val)) {
             name = jl_symbol_name((jl_sym_t*)val);
-        } else if (type != NULL && jl_is_datatype(type)) {
-            auto type_name = type->name;
-            if (type_name != NULL) {
-                auto type_name_name = type_name->name; // wtf!?! how does this segfault??
-                if (type_name_name != NULL) {
-                    name = jl_symbol_name(type_name_name);
-                }
+        } else if ((size_t) type > 0x0000000020000000 && jl_is_datatype(type)) {
+            if (garbage_by_type.find(type) == garbage_by_type.end()) {
+                garbage_by_type[type] = 1;
+            } else {
+                garbage_by_type[type] += 1;
             }
-            
         }
-    }
-
-    if (print && garbage_output_stream) {
-        jl_printf(garbage_output_stream, "freeing %u; type %s\n", tagged_val, name.c_str());
     }
 }
 

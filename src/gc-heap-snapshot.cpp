@@ -186,7 +186,7 @@ void _add_internal_root(HeapSnapshot *snapshot) {
 }
 
 JL_STREAM *garbage_output_stream = 0;
-unordered_map<jl_datatype_t*, size_t> garbage_by_type;
+unordered_map<string, size_t> garbage_by_type;
 
 JL_DLLEXPORT void jl_set_garbage_output_stream(JL_STREAM *stream) {
     garbage_output_stream = stream;
@@ -201,16 +201,7 @@ void report_gc_started() {
 
 void report_gc_finished() {
     for (auto entry : garbage_by_type) {
-        jl_datatype_t *type = entry.first;
-
-        ios_t str_;
-        ios_mem(&str_, 1024);
-        JL_STREAM* str = (JL_STREAM*)&str_;
-
-        jl_static_show(str, (jl_value_t*)type);
-
-        string type_str = string((const char*)str_.buf, str_.size);
-        ios_close(&str_);
+        const auto &type_str = entry.first;
 
         jl_printf(
             garbage_output_stream,
@@ -247,10 +238,19 @@ void record_garbage_value(jl_taggedvalue_t *tagged_val) {
         } else if (jl_is_symbol(val)) {
             name = jl_symbol_name((jl_sym_t*)val);
         } else if (jl_is_datatype(type)) {
-            if (garbage_by_type.find(type) == garbage_by_type.end()) {
-                garbage_by_type[type] = 1;
+            ios_t str_;
+            ios_mem(&str_, 10024);
+            JL_STREAM* str = (JL_STREAM*)&str_;
+
+            jl_static_show(str, (jl_value_t*)type);
+
+            string type_str = string((const char*)str_.buf, str_.size);
+            ios_close(&str_);
+
+            if (garbage_by_type.find(type_str) == garbage_by_type.end()) {
+                garbage_by_type[type_str] = 1;
             } else {
-                garbage_by_type[type] += 1;
+                garbage_by_type[type_str] += 1;
             }
         }
     }

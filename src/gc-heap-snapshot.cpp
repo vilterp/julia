@@ -222,9 +222,6 @@ void report_gc_finished() {
 }
 
 void record_garbage_value(jl_taggedvalue_t *tagged_val) {
-    // for some reason this segfaults during precompilation
-    // but seems fine in normal execution
-    // so import stuff, then turn on the output stream, then execute
     if (!garbage_output_stream) {
         return;
     }

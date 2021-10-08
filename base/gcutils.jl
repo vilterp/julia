@@ -127,6 +127,10 @@ function take_heap_snapshot(io)
     ccall(:jl_gc_take_heap_snapshot, Cvoid, (Ptr{Cvoid},), (io::IOStream).handle::Ptr{Cvoid})
 end
 
+function set_garbage_output_stream(io)
+    ccall(:jl_set_garbage_output_stream, Cvoid, (Ptr{Cvoid},), io.handle)
+end
+
 function enable_finalizers()
     Base.@inline
     ccall(:jl_gc_enable_finalizers_internal, Cvoid, ())

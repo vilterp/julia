@@ -1323,41 +1323,7 @@ static jl_taggedvalue_t **sweep_page(jl_gc_pool_t *p, jl_gc_pagemeta_t *pg, jl_t
         while ((char*)v <= lim) {
             int bits = v->bits.gc;
             if (!gc_marked(bits)) {
-                char *name = "<missing>";
-
-                jl_value_t *val = jl_valueof(v);
-                if (val == (jl_value_t*)jl_malloc_tag) {
-                    name = "<malloc>";
-                } else {
-                    jl_datatype_t* type = (jl_datatype_t*)jl_typeof(val);
-
-                    if ((uintptr_t)type < 4096U) {
-                        name = "<corrupt>";
-                    } else if (type == (jl_datatype_t*)jl_buff_tag) {
-                        name = "<buffer>";
-                    } else if (type == (jl_datatype_t*)jl_malloc_tag) {
-                        name = "<malloc>";
-                    } else if (jl_is_string(val)) {
-                        name = jl_string_data(val);
-                    } else if (jl_is_symbol(val)) {
-                        name = jl_symbol_name((jl_sym_t*)val);
-                    } else if (jl_is_datatype(type)) {
-                        // print full type
-                        ios_t str_;
-                        ios_mem(&str_, 1024);
-                        JL_STREAM* str = (JL_STREAM*)&str_;
-
-                        jl_static_show(str, (jl_value_t*)type);
-
-                        name = (char*)str_.buf;
-                        name[str_.size] = '\0';
-
-                        ios_close(&str_);
-                    }
-                }
-
-                jl_printf(JL_STDERR, "freeing %u; type %s\n", v, name);
-
+                record_garbage_value(v);
                 *pfl = v;
                 pfl = &v->next;
                 pfl_begin = pfl_begin ? pfl_begin : pfl;
@@ -3093,6 +3059,8 @@ size_t jl_maxrss(void);
 // Only one thread should be running in this function
 static int _jl_gc_collect(jl_ptls_t ptls, jl_gc_collection_t collection)
 {
+    report_gc_started();
+
     combine_thread_gc_counts(&gc_num);
 
     jl_gc_mark_cache_t *gc_cache = &ptls->gc_cache;
@@ -3282,6 +3250,7 @@ static int _jl_gc_collect(jl_ptls_t ptls, jl_gc_collection_t collection)
     uint64_t gc_end_t = jl_hrtime();
     uint64_t pause = gc_end_t - t0;
 
+    report_gc_finished(); // TODO: pass stats
     jl_printf(JL_STDERR, "GC: pause %fms. collected %fMB. %lld allocs total\n", pause/1e6, gc_num.freed/1e6, gc_num.allocd);
 
     gc_final_pause_end(t0, gc_end_t);

@@ -181,6 +181,62 @@ void _add_internal_root(HeapSnapshot *snapshot) {
     snapshot->nodes.push_back(internal_root);
 }
 
+JL_STREAM *garbage_output_stream = 0;
+// TODO: keep map
+
+JL_DLLEXPORT void jl_set_garbage_output_stream(JL_STREAM *stream) {
+    garbage_output_stream = stream;
+}
+
+void report_gc_started() {
+    if (garbage_output_stream) {
+        jl_printf(garbage_output_stream, "==================================\n");
+    }
+}
+
+void report_gc_finished() {
+    // TODO: print stats
+}
+
+void record_garbage_value(jl_taggedvalue_t *tagged_val) {
+    string name = "<missing>";
+    int print = 1;
+
+    jl_value_t *val = jl_valueof(tagged_val);
+    if (val == (jl_value_t*)jl_malloc_tag) {
+        name = "<malloc>";
+    } else {
+        jl_datatype_t* type = (jl_datatype_t*)jl_typeof(val);
+
+        if ((uintptr_t)type < 4096U || (uintptr_t)val < 4096U) {
+            name = "<corrupt>";
+            print = 0;
+        } else if (type == (jl_datatype_t*)jl_buff_tag) {
+            name = "<buffer>";
+        } else if (type == (jl_datatype_t*)jl_malloc_tag) {
+            name = "<malloc>";
+        } else if (jl_is_string(val)) {
+            name = jl_string_data(val);
+        } else if (jl_is_symbol(val)) {
+            name = jl_symbol_name((jl_sym_t*)val);
+        } else if (jl_is_datatype(type)) {
+            // print full type
+            ios_t str_;
+            ios_mem(&str_, 1024);
+            JL_STREAM* str = (JL_STREAM*)&str_;
+
+            jl_static_show(str, (jl_value_t*)type);
+
+            name = string((const char*)str_.buf, str_.size);
+            ios_close(&str_);
+        }
+    }
+
+    if (print && garbage_output_stream) {
+        jl_printf(garbage_output_stream, "freeing %u; type %s\n", tagged_val, name.c_str());
+    }
+}
+
 // mimicking https://github.com/nodejs/node/blob/5fd7a72e1c4fbaf37d3723c4c81dce35c149dc84/deps/v8/src/profiler/heap-snapshot-generator.cc#L597-L597
 // returns the index of the new node
 size_t record_node_to_gc_snapshot(jl_value_t *a) JL_NOTSAFEPOINT {

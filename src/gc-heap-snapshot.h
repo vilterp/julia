@@ -10,6 +10,10 @@
 extern "C" {
 #endif
 
+JL_DLLEXPORT void jl_set_garbage_output_stream(JL_STREAM *stream);
+void report_gc_started();
+void report_gc_finished();
+void record_garbage_value(jl_taggedvalue_t *tagged_val);
 
 // ---------------------------------------------------------------------
 // Functions to call from GC when heap snapshot is enabled

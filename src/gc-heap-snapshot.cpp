@@ -199,6 +199,13 @@ void report_gc_finished() {
 }
 
 void record_garbage_value(jl_taggedvalue_t *tagged_val) {
+    // for some reason this segfaults during precompilation
+    // but seems fine in normal execution
+    // so import stuff, then turn on the output stream, then execute
+    if (!garbage_output_stream) {
+        return;
+    }
+
     string name = "<missing>";
     int print = 1;
 
@@ -219,16 +226,15 @@ void record_garbage_value(jl_taggedvalue_t *tagged_val) {
             name = jl_string_data(val);
         } else if (jl_is_symbol(val)) {
             name = jl_symbol_name((jl_sym_t*)val);
-        } else if (jl_is_datatype(type)) {
-            // print full type
-            ios_t str_;
-            ios_mem(&str_, 1024);
-            JL_STREAM* str = (JL_STREAM*)&str_;
-
-            jl_static_show(str, (jl_value_t*)type);
-
-            name = string((const char*)str_.buf, str_.size);
-            ios_close(&str_);
+        } else if (type != NULL && jl_is_datatype(type)) {
+            auto type_name = type->name;
+            if (type_name != NULL) {
+                auto type_name_name = type_name->name; // wtf!?! how does this segfault??
+                if (type_name_name != NULL) {
+                    name = jl_symbol_name(type_name_name);
+                }
+            }
+            
         }
     }
 

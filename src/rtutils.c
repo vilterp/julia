@@ -617,18 +617,6 @@ JL_DLLEXPORT jl_value_t *jl_argument_datatype(jl_value_t *argt JL_PROPAGATES_ROO
 
 static int is_globfunction(jl_value_t *v, jl_datatype_t *dv, jl_sym_t **globname_out)
 {
-    if (!dv) {
-        return 0;
-    }
-    if (!dv->name) {
-        return 0;
-    }
-    if (!dv->name->mt) {
-        return 0;
-    }
-    if (!dv->name->mt->name) {
-        return 0;
-    }
     jl_sym_t *globname = dv->name->mt != NULL ? dv->name->mt->name : NULL;
     *globname_out = globname;
     int globfunc = 0;
@@ -773,12 +761,6 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v, jl_datatype_t *vt
         jl_datatype_t *dv = (jl_datatype_t*)v;
         jl_sym_t *globname;
         int globfunc = is_globfunction(v, dv, &globname);
-        if (!dv->name) {
-            return 0;
-        }
-        if (!dv->name->name) {
-            return 0;
-        }
         jl_sym_t *sym = globfunc ? globname : dv->name->name;
         char *sn = jl_symbol_name(sym);
         size_t quote = 0;

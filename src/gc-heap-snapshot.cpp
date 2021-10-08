@@ -201,39 +201,23 @@ void report_gc_started() {
 
 void report_gc_finished() {
     for (auto entry : garbage_by_type) {
-        if (
-            (size_t)entry.first >= 0x0000000020000000 &&
-            (size_t)entry.first->name >= 0x0000000020000000 &&
-            (size_t)entry.first->name->name >= 0x0000000020000000
-        ) {
-            // jl_printf(JL_STDERR, "first: %p\n", entry.first);
-            // jl_printf(JL_STDERR, "first->name: %p\n", entry.first->name);
-            // jl_printf(JL_STDERR, "first->name->name: %p\n", entry.first->name->name);
-            // jl_printf(
-            //     garbage_output_stream,
-            //     "%s: %zu\n",
-            //     jl_symbol_name(entry.first->name->name),
-            //     entry.second
-            // );
+        jl_datatype_t *type = entry.first;
 
-            jl_datatype_t *type = entry.first;
+        ios_t str_;
+        ios_mem(&str_, 1024);
+        JL_STREAM* str = (JL_STREAM*)&str_;
 
-            ios_t str_;
-            ios_mem(&str_, 1024);
-            JL_STREAM* str = (JL_STREAM*)&str_;
+        jl_static_show(str, (jl_value_t*)type);
 
-            jl_static_show(str, (jl_value_t*)type);
+        string type_str = string((const char*)str_.buf, str_.size);
+        ios_close(&str_);
 
-            string type_str = string((const char*)str_.buf, str_.size);
-            ios_close(&str_);
-
-            jl_printf(
-                garbage_output_stream,
-                "%s: %zu\n",
-                type_str.c_str(),
-                entry.second
-            );
-        }
+        jl_printf(
+            garbage_output_stream,
+            "%s: %zu\n",
+            type_str.c_str(),
+            entry.second
+        );
     }
 }
 
@@ -265,7 +249,7 @@ void record_garbage_value(jl_taggedvalue_t *tagged_val) {
             name = jl_string_data(val);
         } else if (jl_is_symbol(val)) {
             name = jl_symbol_name((jl_sym_t*)val);
-        } else if ((size_t) type > 0x0000000020000000 && jl_is_datatype(type)) {
+        } else if (jl_is_datatype(type)) {
             if (garbage_by_type.find(type) == garbage_by_type.end()) {
                 garbage_by_type[type] = 1;
             } else {

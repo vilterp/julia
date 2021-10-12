@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-JL_DLLEXPORT void jl_set_garbage_output_stream(JL_STREAM *stream);
+JL_DLLEXPORT void jl_set_mem_event_output_stream(JL_STREAM *stream);
 void report_gc_started(void);
 void report_gc_finished(void);
 void record_allocated_value(jl_value_t *val);

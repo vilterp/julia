@@ -184,98 +184,100 @@ void _add_internal_root(HeapSnapshot *snapshot) {
     snapshot->nodes.push_back(internal_root);
 }
 
-JL_STREAM *mem_event_output_stream = nullptr;
-unordered_map<jl_datatype_t*, size_t> mem_event_type_table;
+int garbage_profiling = 0;
+unordered_map<jl_value_t*, jl_datatype_t*> value_type_cache;
+unordered_map<jl_datatype_t*, string> type_string_cache;
+unordered_map<jl_datatype_t*, size_t> frees_by_type;
 
-JL_DLLEXPORT void jl_set_mem_event_output_stream(JL_STREAM *stream) {
-    mem_event_output_stream = stream;
+JL_DLLEXPORT void jl_start_garbage_profile() {
+    garbage_profiling = 1;
+    // TODO: clear these?
+    // frees_by_type.clear();
+    // value_type_cache.clear();
+    // type_string_cache.clear();
 }
 
-void report_gc_started() {
-    if (!mem_event_output_stream) {
-        return;
-    }
-    jl_printf(mem_event_output_stream, "GS\n");
-}
+JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
+    garbage_profiling = 0;
 
-void report_gc_finished() {
-    if (!mem_event_output_stream) {
-        return;
-    }
-    jl_printf(mem_event_output_stream, "GF\n");
-}
-
-string _type_as_string(jl_value_t *val) {
-    string name = "<missing>";
-
-    if (val == (jl_value_t*)jl_malloc_tag) {
-        return "<malloc>";
-    } else {
-        jl_datatype_t* type = (jl_datatype_t*)jl_typeof(val);
-
-        if ((uintptr_t)type < 4096U || (uintptr_t)val < 4096U) {
-            return "<corrupt>";
-        } else if (type == (jl_datatype_t*)jl_buff_tag) {
-            return "<buffer>";
-        } else if (type == (jl_datatype_t*)jl_malloc_tag) {
-            return "<malloc>";
-        } else if (jl_is_string(val)) {
-            return jl_string_data(val);
-        } else if (jl_is_symbol(val)) {
-            return jl_symbol_name((jl_sym_t*)val);
-        } else if (jl_is_datatype(type)) {
-            ios_t str_;
-            ios_mem(&str_, 10024);
-            JL_STREAM* str = (JL_STREAM*)&str_;
-
-            jl_static_show(str, (jl_value_t*)type);
-
-            string type_str = string((const char*)str_.buf, str_.size);
-            ios_close(&str_);
-
-            return type_str;
+    for (auto pair : frees_by_type) {
+        auto type_str = type_string_cache.find(pair.first);
+        if (type_str != type_string_cache.end()) {
+            jl_printf(stream, "%s: %d\n", pair.first, pair.second);
         }
     }
 }
 
-size_t mem_events_register_type(jl_value_t *val) {
-    if (val == (jl_value_t*)jl_malloc_tag) {
-        return 0;
-    }
-
-    jl_datatype_t* type = (jl_datatype_t*)jl_typeof(val);;
-    auto id = mem_event_type_table.find(type);
-    if (id != mem_event_type_table.end()) {
-        return id->second;
-    }
-
-    string type_str = _type_as_string(val);
-    size_t type_id = mem_event_type_table.size();
-    jl_printf(mem_event_output_stream, "T|%s|%ld\n", type_str.c_str(), type_id);
-    mem_event_type_table[type] = type_id;
-
-    return type_id;
+void report_gc_started() {
+    // TODO: anything?
 }
 
-void record_allocated_value(jl_value_t *val) {
-    if (!mem_event_output_stream) {
+void report_gc_finished() {
+    // TODO: printing out stats like before
+}
+
+string _type_as_string(jl_datatype_t *type) {
+    if ((uintptr_t)type < 4096U) {
+        return "<corrupt>";
+    } else if (type == (jl_datatype_t*)jl_buff_tag) {
+        return "<buffer>";
+    } else if (type == (jl_datatype_t*)jl_malloc_tag) {
+        return "<malloc>";
+    } else if (type == jl_string_type) {
+        return "<string>";
+    } else if (type == jl_symbol_type) {
+        return "<symbol>";
+    } else if (jl_is_datatype(type)) {
+        ios_t str_;
+        ios_mem(&str_, 10024);
+        JL_STREAM* str = (JL_STREAM*)&str_;
+
+        jl_static_show(str, (jl_value_t*)type);
+
+        string type_str = string((const char*)str_.buf, str_.size);
+        ios_close(&str_);
+
+        return type_str;
+    } else {
+        return "<missing>";
+    }
+}
+
+void register_type_string(jl_datatype_t *type) {
+    auto id = type_string_cache.find(type);
+    if (id != type_string_cache.end()) {
         return;
     }
 
-    auto type_id = mem_events_register_type(val);
+    string type_str = _type_as_string(type);
+    type_string_cache[type] = type_str;
+}
 
-    // TODO: something faster, like a type table
-    jl_printf(mem_event_output_stream, "A|%p|%ld\n", val, type_id);
+void record_allocated_value(jl_value_t *val) {
+    if (!garbage_profiling) {
+        return;
+    }
+
+    auto type = (jl_datatype_t*)jl_typeof(val);
+    register_type_string(type);
+
+    value_type_cache[val] = type;
 }
 
 void record_freed_value(jl_taggedvalue_t *tagged_val) {
-    if (!mem_event_output_stream) {
+    if (!garbage_profiling) {
         return;
     }
 
     jl_value_t *val = jl_valueof(tagged_val);
-
-    jl_printf(mem_event_output_stream, "F|%p\n", val);
+    auto type = value_type_cache[val];
+    
+    auto frees = frees_by_type.find(type);
+    if (frees != frees_by_type.end()) {
+        frees_by_type[type] = 1;
+    } else {
+        frees_by_type[type] += 1;
+    }
 }
 
 // mimicking https://github.com/nodejs/node/blob/5fd7a72e1c4fbaf37d3723c4c81dce35c149dc84/deps/v8/src/profiler/heap-snapshot-generator.cc#L597-L597

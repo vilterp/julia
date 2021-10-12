@@ -786,6 +786,7 @@ JL_DLLEXPORT jl_value_t *jl_new_bits(jl_value_t *dt, const void *data)
     assert(jl_is_datatype(dt));
     jl_datatype_t *bt = (jl_datatype_t*)dt;
     size_t nb = jl_datatype_size(bt);
+
     // some types have special pools to minimize allocations
     if (nb == 0)               return jl_new_struct_uninit(bt); // returns bt->instance
     if (bt == jl_bool_type)    return (1 & *(int8_t*)data) ? jl_true : jl_false;
@@ -802,6 +803,9 @@ JL_DLLEXPORT jl_value_t *jl_new_bits(jl_value_t *dt, const void *data)
     jl_task_t *ct = jl_current_task;
     jl_value_t *v = jl_gc_alloc(ct->ptls, nb, bt);
     memcpy(jl_assume_aligned(v, sizeof(void*)), data, nb);
+
+    record_allocated_value(v);
+
     return v;
 }
 
@@ -1285,6 +1289,9 @@ JL_DLLEXPORT jl_value_t *jl_new_structv(jl_datatype_t *type, jl_value_t **args, 
         }
         JL_GC_POP();
     }
+
+    record_allocated_value(jv);
+
     return jv;
 }
 
@@ -1332,6 +1339,9 @@ JL_DLLEXPORT jl_value_t *jl_new_structt(jl_datatype_t *type, jl_value_t *tup)
         set_nth_field(type, jv, i, fi, 0);
     }
     JL_GC_POP();
+
+    record_allocated_value(jv);
+
     return jv;
 }
 

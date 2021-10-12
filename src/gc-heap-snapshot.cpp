@@ -41,6 +41,38 @@ void print_str_escape_json(ios_t *stream, const std::string &s) {
     ios_printf(stream, "\"");
 }
 
+string _type_as_string(jl_value_t *val) {
+    string name = "<missing>";
+
+    if (val == (jl_value_t*)jl_malloc_tag) {
+        return "<malloc>";
+    } else {
+        jl_datatype_t* type = (jl_datatype_t*)jl_typeof(val);
+
+        if ((uintptr_t)type < 4096U || (uintptr_t)val < 4096U) {
+            return "<corrupt>";
+        } else if (type == (jl_datatype_t*)jl_buff_tag) {
+            return "<buffer>";
+        } else if (type == (jl_datatype_t*)jl_malloc_tag) {
+            return "<malloc>";
+        } else if (jl_is_string(val)) {
+            return jl_string_data(val);
+        } else if (jl_is_symbol(val)) {
+            return jl_symbol_name((jl_sym_t*)val);
+        } else if (jl_is_datatype(type)) {
+            ios_t str_;
+            ios_mem(&str_, 10024);
+            JL_STREAM* str = (JL_STREAM*)&str_;
+
+            jl_static_show(str, (jl_value_t*)type);
+
+            string type_str = string((const char*)str_.buf, str_.size);
+            ios_close(&str_);
+
+            return type_str;
+        }
+    }
+}
 
 // Edges
 // "edge_fields":
@@ -181,75 +213,46 @@ void _add_internal_root(HeapSnapshot *snapshot) {
     snapshot->nodes.push_back(internal_root);
 }
 
-JL_STREAM *garbage_output_stream = 0;
-unordered_map<string, size_t> garbage_by_type;
+JL_STREAM *mem_event_output_stream = 0;
 
-JL_DLLEXPORT void jl_set_garbage_output_stream(JL_STREAM *stream) {
-    garbage_output_stream = stream;
+JL_DLLEXPORT void jl_set_mem_event_output_stream(JL_STREAM *stream) {
+    mem_event_output_stream = stream;
 }
 
 void report_gc_started() {
-    if (garbage_output_stream) {
-        garbage_by_type.clear();
-        jl_printf(garbage_output_stream, "==================================\n");
+    if (mem_event_output_stream) {
+        jl_printf(mem_event_output_stream, "gc_start");
     }
 }
 
 void report_gc_finished() {
-    for (auto entry : garbage_by_type) {
-        const auto &type_str = entry.first;
-
-        jl_printf(
-            garbage_output_stream,
-            "%s: %zu\n",
-            type_str.c_str(),
-            entry.second
-        );
+    if (!mem_event_output_stream) {
+        return;
     }
+    jl_printf(mem_event_output_stream, "gc_finish");
 }
 
-void record_garbage_value(jl_taggedvalue_t *tagged_val) {
-    if (!garbage_output_stream) {
+void record_allocated_value(jl_value_t *val) {
+    if (!mem_event_output_stream) {
         return;
     }
 
-    string name = "<missing>";
-    int print = 1;
+    // TODO: something faster, like a type table
+    jl_printf(
+        mem_event_output_stream,
+        "alloc,%p,%s",
+        val, _type_as_string(val).c_str()
+    );
+}
+
+void record_freed_value(jl_taggedvalue_t *tagged_val) {
+    if (!mem_event_output_stream) {
+        return;
+    }
 
     jl_value_t *val = jl_valueof(tagged_val);
-    if (val == (jl_value_t*)jl_malloc_tag) {
-        name = "<malloc>";
-    } else {
-        jl_datatype_t* type = (jl_datatype_t*)jl_typeof(val);
 
-        if ((uintptr_t)type < 4096U || (uintptr_t)val < 4096U) {
-            name = "<corrupt>";
-            print = 0;
-        } else if (type == (jl_datatype_t*)jl_buff_tag) {
-            name = "<buffer>";
-        } else if (type == (jl_datatype_t*)jl_malloc_tag) {
-            name = "<malloc>";
-        } else if (jl_is_string(val)) {
-            name = jl_string_data(val);
-        } else if (jl_is_symbol(val)) {
-            name = jl_symbol_name((jl_sym_t*)val);
-        } else if (jl_is_datatype(type)) {
-            ios_t str_;
-            ios_mem(&str_, 10024);
-            JL_STREAM* str = (JL_STREAM*)&str_;
-
-            jl_static_show(str, (jl_value_t*)type);
-
-            string type_str = string((const char*)str_.buf, str_.size);
-            ios_close(&str_);
-
-            if (garbage_by_type.find(type_str) == garbage_by_type.end()) {
-                garbage_by_type[type_str] = 1;
-            } else {
-                garbage_by_type[type_str] += 1;
-            }
-        }
-    }
+    jl_printf(mem_event_output_stream, "free,%p", val);
 }
 
 // mimicking https://github.com/nodejs/node/blob/5fd7a72e1c4fbaf37d3723c4c81dce35c149dc84/deps/v8/src/profiler/heap-snapshot-generator.cc#L597-L597
@@ -265,6 +268,8 @@ size_t record_node_to_gc_snapshot(jl_value_t *a) JL_NOTSAFEPOINT {
     string name = "<missing>";
     string node_type = "object";
 
+    // TODO: dedup with _type_as_string
+    // need variant that returns size as well
     if (a == (jl_value_t*)jl_malloc_tag) {
         name = "<malloc>";
     } else {

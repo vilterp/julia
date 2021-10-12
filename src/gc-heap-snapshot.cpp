@@ -41,39 +41,6 @@ void print_str_escape_json(ios_t *stream, const std::string &s) {
     ios_printf(stream, "\"");
 }
 
-string _type_as_string(jl_value_t *val) {
-    string name = "<missing>";
-
-    if (val == (jl_value_t*)jl_malloc_tag) {
-        return "<malloc>";
-    } else {
-        jl_datatype_t* type = (jl_datatype_t*)jl_typeof(val);
-
-        if ((uintptr_t)type < 4096U || (uintptr_t)val < 4096U) {
-            return "<corrupt>";
-        } else if (type == (jl_datatype_t*)jl_buff_tag) {
-            return "<buffer>";
-        } else if (type == (jl_datatype_t*)jl_malloc_tag) {
-            return "<malloc>";
-        } else if (jl_is_string(val)) {
-            return jl_string_data(val);
-        } else if (jl_is_symbol(val)) {
-            return jl_symbol_name((jl_sym_t*)val);
-        } else if (jl_is_datatype(type)) {
-            ios_t str_;
-            ios_mem(&str_, 10024);
-            JL_STREAM* str = (JL_STREAM*)&str_;
-
-            jl_static_show(str, (jl_value_t*)type);
-
-            string type_str = string((const char*)str_.buf, str_.size);
-            ios_close(&str_);
-
-            return type_str;
-        }
-    }
-}
-
 // Edges
 // "edge_fields":
 //   [ "type", "name_or_index", "to_node" ]
@@ -213,23 +180,77 @@ void _add_internal_root(HeapSnapshot *snapshot) {
     snapshot->nodes.push_back(internal_root);
 }
 
-JL_STREAM *mem_event_output_stream = 0;
+JL_STREAM *mem_event_output_stream = nullptr;
+unordered_map<jl_datatype_t*, size_t> mem_event_type_table;
 
 JL_DLLEXPORT void jl_set_mem_event_output_stream(JL_STREAM *stream) {
     mem_event_output_stream = stream;
 }
 
 void report_gc_started() {
-    if (mem_event_output_stream) {
-        jl_printf(mem_event_output_stream, "gc_start\n");
+    if (!mem_event_output_stream) {
+        return;
     }
+    jl_printf(mem_event_output_stream, "GS\n");
 }
 
 void report_gc_finished() {
     if (!mem_event_output_stream) {
         return;
     }
-    jl_printf(mem_event_output_stream, "gc_finish\n");
+    jl_printf(mem_event_output_stream, "GF\n");
+}
+
+string _type_as_string(jl_value_t *val) {
+    string name = "<missing>";
+
+    if (val == (jl_value_t*)jl_malloc_tag) {
+        return "<malloc>";
+    } else {
+        jl_datatype_t* type = (jl_datatype_t*)jl_typeof(val);
+
+        if ((uintptr_t)type < 4096U || (uintptr_t)val < 4096U) {
+            return "<corrupt>";
+        } else if (type == (jl_datatype_t*)jl_buff_tag) {
+            return "<buffer>";
+        } else if (type == (jl_datatype_t*)jl_malloc_tag) {
+            return "<malloc>";
+        } else if (jl_is_string(val)) {
+            return jl_string_data(val);
+        } else if (jl_is_symbol(val)) {
+            return jl_symbol_name((jl_sym_t*)val);
+        } else if (jl_is_datatype(type)) {
+            ios_t str_;
+            ios_mem(&str_, 10024);
+            JL_STREAM* str = (JL_STREAM*)&str_;
+
+            jl_static_show(str, (jl_value_t*)type);
+
+            string type_str = string((const char*)str_.buf, str_.size);
+            ios_close(&str_);
+
+            return type_str;
+        }
+    }
+}
+
+size_t mem_events_register_type(jl_value_t *val) {
+    if (val == (jl_value_t*)jl_malloc_tag) {
+        return 0;
+    }
+
+    jl_datatype_t* type = (jl_datatype_t*)jl_typeof(val);;
+    auto id = mem_event_type_table.find(type);
+    if (id != mem_event_type_table.end()) {
+        return id->second;
+    }
+
+    string type_str = _type_as_string(val);
+    size_t type_id = mem_event_type_table.size();
+    jl_printf(mem_event_output_stream, "T|%s|%ld\n", type_str.c_str(), type_id);
+    mem_event_type_table[type] = type_id;
+
+    return type_id;
 }
 
 void record_allocated_value(jl_value_t *val) {
@@ -237,12 +258,10 @@ void record_allocated_value(jl_value_t *val) {
         return;
     }
 
+    auto type_id = mem_events_register_type(val);
+
     // TODO: something faster, like a type table
-    jl_printf(
-        mem_event_output_stream,
-        "alloc,%p,%s\n",
-        val, _type_as_string(val).c_str()
-    );
+    jl_printf(mem_event_output_stream, "A|%p|%ld\n", val, type_id);
 }
 
 void record_freed_value(jl_taggedvalue_t *tagged_val) {
@@ -252,7 +271,7 @@ void record_freed_value(jl_taggedvalue_t *tagged_val) {
 
     jl_value_t *val = jl_valueof(tagged_val);
 
-    jl_printf(mem_event_output_stream, "free,%p\n", val);
+    jl_printf(mem_event_output_stream, "F|%p\n", val);
 }
 
 // mimicking https://github.com/nodejs/node/blob/5fd7a72e1c4fbaf37d3723c4c81dce35c149dc84/deps/v8/src/profiler/heap-snapshot-generator.cc#L597-L597

@@ -221,7 +221,7 @@ JL_DLLEXPORT void jl_set_mem_event_output_stream(JL_STREAM *stream) {
 
 void report_gc_started() {
     if (mem_event_output_stream) {
-        jl_printf(mem_event_output_stream, "gc_start");
+        jl_printf(mem_event_output_stream, "gc_start\n");
     }
 }
 
@@ -229,7 +229,7 @@ void report_gc_finished() {
     if (!mem_event_output_stream) {
         return;
     }
-    jl_printf(mem_event_output_stream, "gc_finish");
+    jl_printf(mem_event_output_stream, "gc_finish\n");
 }
 
 void record_allocated_value(jl_value_t *val) {
@@ -240,7 +240,7 @@ void record_allocated_value(jl_value_t *val) {
     // TODO: something faster, like a type table
     jl_printf(
         mem_event_output_stream,
-        "alloc,%p,%s",
+        "alloc,%p,%s\n",
         val, _type_as_string(val).c_str()
     );
 }
@@ -252,7 +252,7 @@ void record_freed_value(jl_taggedvalue_t *tagged_val) {
 
     jl_value_t *val = jl_valueof(tagged_val);
 
-    jl_printf(mem_event_output_stream, "free,%p", val);
+    jl_printf(mem_event_output_stream, "free,%p\n", val);
 }
 
 // mimicking https://github.com/nodejs/node/blob/5fd7a72e1c4fbaf37d3723c4c81dce35c149dc84/deps/v8/src/profiler/heap-snapshot-generator.cc#L597-L597

@@ -127,8 +127,12 @@ function take_heap_snapshot(io)
     ccall(:jl_gc_take_heap_snapshot, Cvoid, (Ptr{Cvoid},), (io::IOStream).handle::Ptr{Cvoid})
 end
 
-function set_mem_event_output_stream(io)
-    ccall(:jl_set_mem_event_output_stream, Cvoid, (Ptr{Cvoid},), io.handle)
+function start_garbage_profile()
+    ccall(:jl_start_garbage_profile, Cvoid, ())
+end
+
+function finish_and_write_garbage_profile(io)
+    ccall(:jl_finish_and_write_garbage_profile, Cvoid, (Ptr{Cvoid},), io.handle)
 end
 
 function enable_finalizers()

@@ -203,7 +203,7 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
     for (auto pair : frees_by_type) {
         auto type_str = type_string_cache.find(pair.first);
         if (type_str != type_string_cache.end()) {
-            jl_printf(stream, "%s: %d\n", pair.first, pair.second);
+            jl_printf(stream, "%s: %d\n", type_str->second.c_str(), pair.second);
         }
     }
 }
@@ -273,7 +273,7 @@ void record_freed_value(jl_taggedvalue_t *tagged_val) {
     auto type = value_type_cache[val];
     
     auto frees = frees_by_type.find(type);
-    if (frees != frees_by_type.end()) {
+    if (frees == frees_by_type.end()) {
         frees_by_type[type] = 1;
     } else {
         frees_by_type[type] += 1;

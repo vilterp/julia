@@ -233,13 +233,10 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
     unordered_map<size_t, size_t> type_address_by_value_address;
     unordered_map<size_t, size_t> frees_by_type_address;
 
-    jl_printf(JL_STDERR, "================== start processing. size of memevents: %d ==============\n", g_mem_events.size());
-
     auto idx = 0;
     for (auto event : g_mem_events) {
         switch (event.kind) {
             case ev_alloc:
-                jl_printf(JL_STDERR, "alloc %p. type: %p\n", event.event.alloc.address, event.event.alloc.type_address);
                 type_address_by_value_address[event.event.alloc.address] = event.event.alloc.type_address;
                 break;
             case ev_free: {
@@ -248,16 +245,13 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
                 if (type_address == type_address_by_value_address.end()) {
                     continue; // TODO: warn
                 }
-                jl_printf(JL_STDERR, "free %p. type: %p\n", value_address, type_address->second);
                 auto frees = frees_by_type_address.find(type_address->second);
-                // jl_printf(JL_STDERR, "free %p. type: %p, cur: %d\n", value_address, type_address->second, frees->second);
 
                 if (frees == frees_by_type_address.end()) {
                     frees_by_type_address[type_address->second] = 1;
                 } else {
                     frees_by_type_address[type_address->second] = frees->second + 1;
                 }
-                jl_printf(JL_STDERR, "frees[%p] = %d\n", type_address->second, frees_by_type_address[type_address->second]);
                 break;
             }
         }
@@ -266,11 +260,8 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
 
     // sort frees
 
-    jl_printf(JL_STDERR, "============ start printing. size of frees: %d =================\n", frees_by_type_address.size());
-
     vector<std::pair<size_t, size_t>> pairs;
     for (auto const &pair : frees_by_type_address) {
-        jl_printf(stream, "count: %p: %d\n", pair.first, pair.second);
         pairs.push_back(pair);
     }
     std::sort(pairs.begin(), pairs.end(), pair_cmp);
@@ -341,8 +332,6 @@ void register_type_string(jl_datatype_t *type) {
 
     string type_str = _type_as_string(type);
     g_type_name_by_address[(size_t)type] = type_str;
-
-    jl_printf(JL_STDERR, "register type %p: %s\n", type, type_str.c_str());
 }
 
 void record_allocated_value(jl_value_t *val) {

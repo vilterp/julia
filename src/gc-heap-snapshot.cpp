@@ -185,17 +185,46 @@ void _add_internal_root(HeapSnapshot *snapshot) {
     snapshot->nodes.push_back(internal_root);
 }
 
+enum mem_event_kind { ev_alloc, ev_free, ev_type, ev_gc_start, ev_gc_finish };
+
+struct alloc_event {
+    size_t address;
+    size_t type_id;
+};
+struct free_event {
+    size_t address;
+};
+struct type_event {
+    string name;
+};
+struct gc_start_event {};
+struct gc_finish_event {};
+
+union mem_event_raw {
+    alloc_event alloc;
+    free_event free;
+    type_event type;
+    gc_start_event gc_start;
+    gc_finish_event gc_finish;
+};
+
+struct mem_event {
+    mem_event_kind kind;
+    mem_event_raw event;
+};
+
+// whether profiling is on or not
 int garbage_profiling = 0;
-unordered_map<jl_value_t*, jl_datatype_t*> value_type_cache;
-unordered_map<jl_datatype_t*, string> type_string_cache;
-unordered_map<jl_datatype_t*, size_t> frees_by_type;
+// memory events accumulated during the profile
+vector<mem_event> g_mem_events;
+// for each type, the index in mem_event where the type
+// event appears.
+unordered_map<jl_datatype_t*, size_t> g_type_event_index;
 
 JL_DLLEXPORT void jl_start_garbage_profile() {
     garbage_profiling = 1;
-    // TODO: clear these?
-    frees_by_type.clear();
-    // value_type_cache.clear();
-    // type_string_cache.clear();
+    g_mem_events.clear();
+    g_type_event_index.clear();
 }
 
 bool pair_cmp(std::pair<jl_datatype_t*, size_t> a, std::pair<jl_datatype_t*, size_t> b) {
@@ -205,29 +234,66 @@ bool pair_cmp(std::pair<jl_datatype_t*, size_t> a, std::pair<jl_datatype_t*, siz
 JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
     garbage_profiling = 0;
 
-    vector<std::pair<jl_datatype_t*, size_t>> pairs;
+    // compute frees by type
+    unordered_map<size_t, string> type_name_by_id;
+    unordered_map<size_t, size_t> type_id_by_address;
+    unordered_map<size_t, size_t> frees_by_type_id;
 
-    // TODO: sort by value first
-    for (auto pair : frees_by_type) {
+    auto idx = 0;
+    for (auto event : g_mem_events) {
+        switch (event.kind) {
+            case ev_alloc:
+                type_id_by_address[event.event.alloc.address] = event.event.alloc.type_id;
+                break;
+            case ev_free:
+                auto address = event.event.free.address;
+                auto frees = frees_by_type_id.find(address);
+                if (frees == frees_by_type_id.end()) {
+                    frees_by_type_id[address] = 1;
+                } else {
+                    frees_by_type_id[address] = frees->second + 1;
+                }
+                break;
+            case ev_type:
+                type_name_by_id[idx] = event.event.type.name;
+                break;
+        }
+        idx++;
+    }
+
+    // sort frees
+    vector<std::pair<jl_datatype_t*, size_t>> pairs;
+    for (auto pair : frees_by_type_id) {
         pairs.push_back(pair);
     }
     std::sort(pairs.begin(), pairs.end(), pair_cmp);
     for (auto pair : pairs) {
-        auto type_str = type_string_cache.find(pair.first);
-        if (type_str != type_string_cache.end()) {
+        auto type_str = type_name_by_id.find(pair.first);
+        if (type_str != type_name_by_id.end()) {
             jl_printf(stream, "%s: %d\n", type_str->second.c_str(), pair.second);
         } else {
             // TODO: warn about missing type
         }
     }
+
+    g_mem_events.clear();
+    g_type_event_index.clear();
 }
 
 void report_gc_started() {
-    // TODO: anything?
+    // if (garbage_profiling) {
+    //     mem_event event;
+    //     event.kind = ev_gc_start;
+    //     g_mem_events.push_back(event);
+    // }
 }
 
 void report_gc_finished() {
-    // TODO: printing out stats like before
+    // if (garbage_profiling) {
+    //     mem_event event;
+    //     event.kind = ev_gc_finish;
+    //     g_mem_events.push_back(event);
+    // }
 }
 
 string _type_as_string(jl_datatype_t *type) {
@@ -257,14 +323,20 @@ string _type_as_string(jl_datatype_t *type) {
     }
 }
 
-void register_type_string(jl_datatype_t *type) {
-    auto id = type_string_cache.find(type);
-    if (id != type_string_cache.end()) {
-        return;
+size_t register_type_string(jl_datatype_t *type) {
+    auto id = g_type_event_index.find(type);
+    if (id != g_type_event_index.end()) {
+        return id->second;
     }
 
     string type_str = _type_as_string(type);
-    type_string_cache[type] = type_str;
+
+    mem_event event;
+    event.kind = ev_type;
+    event.event = type_event{type_str};
+
+    g_mem_events.push_back(event);
+    g_type_event_index[type] = g_mem_events.size();
 }
 
 void record_allocated_value(jl_value_t *val) {
@@ -273,9 +345,13 @@ void record_allocated_value(jl_value_t *val) {
     }
 
     auto type = (jl_datatype_t*)jl_typeof(val);
-    register_type_string(type);
+    auto type_id = register_type_string(type);
 
-    value_type_cache[val] = type;
+    mem_event event;
+    event.kind = ev_alloc;
+    event.event.alloc = alloc_event{(size_t)val, type_id};
+
+    g_mem_events.push_back(event);
 }
 
 void record_freed_value(jl_taggedvalue_t *tagged_val) {
@@ -284,14 +360,10 @@ void record_freed_value(jl_taggedvalue_t *tagged_val) {
     }
 
     jl_value_t *val = jl_valueof(tagged_val);
-    auto type = value_type_cache[val];
-    
-    auto frees = frees_by_type.find(type);
-    if (frees == frees_by_type.end()) {
-        frees_by_type[type] = 1;
-    } else {
-        frees_by_type[type] += 1;
-    }
+    mem_event event;
+    event.kind = ev_free;
+    event.event.free = free_event{(size_t)val};
+    g_mem_events.push_back(event);
 }
 
 // mimicking https://github.com/nodejs/node/blob/5fd7a72e1c4fbaf37d3723c4c81dce35c149dc84/deps/v8/src/profiler/heap-snapshot-generator.cc#L597-L597

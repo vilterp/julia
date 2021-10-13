@@ -265,7 +265,7 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
                 break;
             }
             case ev_type:
-                jl_printf(JL_STDERR, "type %d: %s\n", idx, event.event.type.name);
+                jl_printf(JL_STDERR, "type %d: %p: %s\n", idx, event.event.type.name, event.event.type.name);
                 type_name_by_id[idx] = event.event.type.name;
                 break;
         }
@@ -348,9 +348,10 @@ size_t register_type_string(jl_datatype_t *type) {
 
     g_type_event_index[type] = g_mem_events.size();
 
-    jl_printf(JL_STDERR, "register type %d: %s\n", g_mem_events.size(), event.event.type.name);
+    jl_printf(JL_STDERR, "register type %d: %p, %s\n", g_mem_events.size(), event.event.type.name, event.event.type.name);
 
     g_mem_events.push_back(event);
+    jl_printf(JL_STDERR, "_register type %p, %s\n", g_mem_events.back().event.type.name, g_mem_events.back().event.type.name);
 }
 
 void record_allocated_value(jl_value_t *val) {

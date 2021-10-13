@@ -191,7 +191,7 @@ struct free_event {
     size_t address;
 };
 struct type_event {
-    string name;
+    const char *name;
 };
 struct gc_start_event {};
 struct gc_finish_event {};
@@ -223,7 +223,7 @@ JL_DLLEXPORT void jl_start_garbage_profile() {
     g_type_event_index.clear();
 }
 
-bool pair_cmp(std::pair<jl_datatype_t*, size_t> a, std::pair<jl_datatype_t*, size_t> b) {
+bool pair_cmp(std::pair<size_t, size_t> a, std::pair<size_t, size_t> b) {
     return a.second > b.second;
 }
 
@@ -241,7 +241,7 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
             case ev_alloc:
                 type_id_by_address[event.event.alloc.address] = event.event.alloc.type_id;
                 break;
-            case ev_free:
+            case ev_free: {
                 auto address = event.event.free.address;
                 auto frees = frees_by_type_id.find(address);
                 if (frees == frees_by_type_id.end()) {
@@ -250,6 +250,7 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
                     frees_by_type_id[address] = frees->second + 1;
                 }
                 break;
+            }
             case ev_type:
                 type_name_by_id[idx] = event.event.type.name;
                 break;
@@ -258,7 +259,7 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
     }
 
     // sort frees
-    vector<std::pair<jl_datatype_t*, size_t>> pairs;
+    vector<std::pair<size_t, size_t>> pairs;
     for (auto pair : frees_by_type_id) {
         pairs.push_back(pair);
     }
@@ -329,7 +330,7 @@ size_t register_type_string(jl_datatype_t *type) {
 
     mem_event event;
     event.kind = ev_type;
-    event.event = type_event{type_str};
+    event.event.type = type_event{type_str.c_str()};
 
     g_mem_events.push_back(event);
     g_type_event_index[type] = g_mem_events.size();

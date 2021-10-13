@@ -243,19 +243,21 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
                 type_address_by_value_address[event.event.alloc.address] = event.event.alloc.type_address;
                 break;
             case ev_free: {
-                auto address = event.event.free.address;
-                auto type_id = type_address_by_value_address.find(address);
-                if (type_id == type_address_by_value_address.end()) {
+                auto value_address = event.event.free.address;
+                auto type_address = type_address_by_value_address.find(value_address);
+                if (type_address == type_address_by_value_address.end()) {
                     continue; // TODO: warn
                 }
-                auto frees = frees_by_type_address.find(type_id->second);
-                jl_printf(JL_STDERR, "free %p. cur: %d\n", address, frees);
+                jl_printf(JL_STDERR, "free %p. type: %p\n", value_address, type_address->second);
+                auto frees = frees_by_type_address.find(type_address->second);
+                // jl_printf(JL_STDERR, "free %p. type: %p, cur: %d\n", value_address, type_address->second, frees->second);
 
                 if (frees == frees_by_type_address.end()) {
-                    frees_by_type_address[address] = 1;
+                    frees_by_type_address[type_address->second] = 1;
                 } else {
-                    frees_by_type_address[address] = frees->second + 1;
+                    frees_by_type_address[type_address->second] = frees->second + 1;
                 }
+                jl_printf(JL_STDERR, "frees[%p] = %d\n", type_address->second, frees_by_type_address[type_address->second]);
                 break;
             }
         }
@@ -263,16 +265,23 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
     }
 
     // sort frees
+
+    jl_printf(JL_STDERR, "============ start printing. size of frees: %d =================\n", frees_by_type_address.size());
+
     vector<std::pair<size_t, size_t>> pairs;
-    for (auto pair : frees_by_type_address) {
+    for (auto const &pair : frees_by_type_address) {
+        jl_printf(stream, "count: %p: %d\n", pair.first, pair.second);
         pairs.push_back(pair);
     }
     std::sort(pairs.begin(), pairs.end(), pair_cmp);
+
+    // print it out
     for (auto pair : pairs) {
         auto type_str = g_type_name_by_address.find(pair.first);
         if (type_str != g_type_name_by_address.end()) {
             jl_printf(stream, "%s: %d\n", type_str->second.c_str(), pair.second);
         } else {
+            jl_printf(JL_STDERR, "couldn't find type %p\n", pair.first);
             // TODO: warn about missing type
         }
     }

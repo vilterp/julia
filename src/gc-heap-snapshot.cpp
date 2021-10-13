@@ -5,6 +5,7 @@
 #include "julia_internal.h"
 #include "gc.h"
 
+#include <algorithm>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -192,18 +193,31 @@ unordered_map<jl_datatype_t*, size_t> frees_by_type;
 JL_DLLEXPORT void jl_start_garbage_profile() {
     garbage_profiling = 1;
     // TODO: clear these?
-    // frees_by_type.clear();
+    frees_by_type.clear();
     // value_type_cache.clear();
     // type_string_cache.clear();
+}
+
+bool pair_cmp(std::pair<jl_datatype_t*, size_t> a, std::pair<jl_datatype_t*, size_t> b) {
+    return a.second > b.second;
 }
 
 JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
     garbage_profiling = 0;
 
+    vector<std::pair<jl_datatype_t*, size_t>> pairs;
+
+    // TODO: sort by value first
     for (auto pair : frees_by_type) {
+        pairs.push_back(pair);
+    }
+    std::sort(pairs.begin(), pairs.end(), pair_cmp);
+    for (auto pair : pairs) {
         auto type_str = type_string_cache.find(pair.first);
         if (type_str != type_string_cache.end()) {
             jl_printf(stream, "%s: %d\n", type_str->second.c_str(), pair.second);
+        } else {
+            // TODO: warn about missing type
         }
     }
 }

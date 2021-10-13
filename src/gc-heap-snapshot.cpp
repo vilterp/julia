@@ -235,19 +235,28 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
     garbage_profiling = 0;
 
     // compute frees by type
-    unordered_map<size_t, string> type_name_by_id;
+    unordered_map<size_t, const char*> type_name_by_id;
     unordered_map<size_t, size_t> type_id_by_address;
     unordered_map<size_t, size_t> frees_by_type_id;
+
+    jl_printf(JL_STDERR, "================== start processing. size of memevents: %d ==============\n", g_mem_events.size());
 
     auto idx = 0;
     for (auto event : g_mem_events) {
         switch (event.kind) {
             case ev_alloc:
+                jl_printf(JL_STDERR, "alloc %p. type: %d\n", event.event.alloc.address, event.event.alloc.type_id);
                 type_id_by_address[event.event.alloc.address] = event.event.alloc.type_id;
                 break;
             case ev_free: {
                 auto address = event.event.free.address;
-                auto frees = frees_by_type_id.find(address);
+                auto type_id = type_id_by_address.find(address);
+                if (type_id == type_id_by_address.end()) {
+                    continue; // TODO: warn
+                }
+                auto frees = frees_by_type_id.find(type_id->second);
+                jl_printf(JL_STDERR, "free %p. cur: %d\n", address, frees);
+
                 if (frees == frees_by_type_id.end()) {
                     frees_by_type_id[address] = 1;
                 } else {
@@ -256,6 +265,7 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
                 break;
             }
             case ev_type:
+                jl_printf(JL_STDERR, "type %d: %s\n", idx, event.event.type.name);
                 type_name_by_id[idx] = event.event.type.name;
                 break;
         }
@@ -271,7 +281,7 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
     for (auto pair : pairs) {
         auto type_str = type_name_by_id.find(pair.first);
         if (type_str != type_name_by_id.end()) {
-            jl_printf(stream, "%s: %d\n", type_str->second.c_str(), pair.second);
+            jl_printf(stream, "%s: %d\n", type_str->second, pair.second);
         } else {
             // TODO: warn about missing type
         }
@@ -334,10 +344,13 @@ size_t register_type_string(jl_datatype_t *type) {
 
     mem_event event;
     event.kind = ev_type;
-    event.event.type = type_event{type_str.c_str()};
+    event.event.type.name = type_str.c_str();
+
+    g_type_event_index[type] = g_mem_events.size();
+
+    jl_printf(JL_STDERR, "register type %d: %s\n", g_mem_events.size(), event.event.type.name);
 
     g_mem_events.push_back(event);
-    g_type_event_index[type] = g_mem_events.size();
 }
 
 void record_allocated_value(jl_value_t *val) {

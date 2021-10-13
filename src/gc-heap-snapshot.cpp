@@ -185,17 +185,14 @@ void _add_internal_root(HeapSnapshot *snapshot) {
     snapshot->nodes.push_back(internal_root);
 }
 
-enum mem_event_kind { ev_alloc, ev_free, ev_type, ev_gc_start, ev_gc_finish };
+enum mem_event_kind { ev_alloc, ev_free, ev_gc_start, ev_gc_finish };
 
 struct alloc_event {
     size_t address;
-    size_t type_id;
+    size_t type_address;
 };
 struct free_event {
     size_t address;
-};
-struct type_event {
-    const char *name;
 };
 struct gc_start_event {};
 struct gc_finish_event {};
@@ -203,7 +200,6 @@ struct gc_finish_event {};
 union mem_event_raw {
     alloc_event alloc;
     free_event free;
-    type_event type;
     gc_start_event gc_start;
     gc_finish_event gc_finish;
 };
@@ -219,12 +215,11 @@ int garbage_profiling = 0;
 vector<mem_event> g_mem_events;
 // for each type, the index in mem_event where the type
 // event appears.
-unordered_map<jl_datatype_t*, size_t> g_type_event_index;
+unordered_map<size_t, string> g_type_name_by_address;
 
 JL_DLLEXPORT void jl_start_garbage_profile() {
     garbage_profiling = 1;
     g_mem_events.clear();
-    g_type_event_index.clear();
 }
 
 bool pair_cmp(std::pair<size_t, size_t> a, std::pair<size_t, size_t> b) {
@@ -235,9 +230,8 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
     garbage_profiling = 0;
 
     // compute frees by type
-    unordered_map<size_t, const char*> type_name_by_id;
-    unordered_map<size_t, size_t> type_id_by_address;
-    unordered_map<size_t, size_t> frees_by_type_id;
+    unordered_map<size_t, size_t> type_address_by_value_address;
+    unordered_map<size_t, size_t> frees_by_type_address;
 
     jl_printf(JL_STDERR, "================== start processing. size of memevents: %d ==============\n", g_mem_events.size());
 
@@ -245,50 +239,46 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
     for (auto event : g_mem_events) {
         switch (event.kind) {
             case ev_alloc:
-                jl_printf(JL_STDERR, "alloc %p. type: %d\n", event.event.alloc.address, event.event.alloc.type_id);
-                type_id_by_address[event.event.alloc.address] = event.event.alloc.type_id;
+                jl_printf(JL_STDERR, "alloc %p. type: %p\n", event.event.alloc.address, event.event.alloc.type_address);
+                type_address_by_value_address[event.event.alloc.address] = event.event.alloc.type_address;
                 break;
             case ev_free: {
                 auto address = event.event.free.address;
-                auto type_id = type_id_by_address.find(address);
-                if (type_id == type_id_by_address.end()) {
+                auto type_id = type_address_by_value_address.find(address);
+                if (type_id == type_address_by_value_address.end()) {
                     continue; // TODO: warn
                 }
-                auto frees = frees_by_type_id.find(type_id->second);
+                auto frees = frees_by_type_address.find(type_id->second);
                 jl_printf(JL_STDERR, "free %p. cur: %d\n", address, frees);
 
-                if (frees == frees_by_type_id.end()) {
-                    frees_by_type_id[address] = 1;
+                if (frees == frees_by_type_address.end()) {
+                    frees_by_type_address[address] = 1;
                 } else {
-                    frees_by_type_id[address] = frees->second + 1;
+                    frees_by_type_address[address] = frees->second + 1;
                 }
                 break;
             }
-            case ev_type:
-                jl_printf(JL_STDERR, "type %d: %p: %s\n", idx, event.event.type.name, event.event.type.name);
-                type_name_by_id[idx] = event.event.type.name;
-                break;
         }
         idx++;
     }
 
     // sort frees
     vector<std::pair<size_t, size_t>> pairs;
-    for (auto pair : frees_by_type_id) {
+    for (auto pair : frees_by_type_address) {
         pairs.push_back(pair);
     }
     std::sort(pairs.begin(), pairs.end(), pair_cmp);
     for (auto pair : pairs) {
-        auto type_str = type_name_by_id.find(pair.first);
-        if (type_str != type_name_by_id.end()) {
-            jl_printf(stream, "%s: %d\n", type_str->second, pair.second);
+        auto type_str = g_type_name_by_address.find(pair.first);
+        if (type_str != g_type_name_by_address.end()) {
+            jl_printf(stream, "%s: %d\n", type_str->second.c_str(), pair.second);
         } else {
             // TODO: warn about missing type
         }
     }
 
     g_mem_events.clear();
-    g_type_event_index.clear();
+    g_type_name_by_address.clear();
 }
 
 void report_gc_started() {
@@ -334,24 +324,16 @@ string _type_as_string(jl_datatype_t *type) {
     }
 }
 
-size_t register_type_string(jl_datatype_t *type) {
-    auto id = g_type_event_index.find(type);
-    if (id != g_type_event_index.end()) {
-        return id->second;
+void register_type_string(jl_datatype_t *type) {
+    auto id = g_type_name_by_address.find((size_t)type);
+    if (id != g_type_name_by_address.end()) {
+        return;
     }
 
     string type_str = _type_as_string(type);
+    g_type_name_by_address[(size_t)type] = type_str;
 
-    mem_event event;
-    event.kind = ev_type;
-    event.event.type.name = type_str.c_str();
-
-    g_type_event_index[type] = g_mem_events.size();
-
-    jl_printf(JL_STDERR, "register type %d: %p, %s\n", g_mem_events.size(), event.event.type.name, event.event.type.name);
-
-    g_mem_events.push_back(event);
-    jl_printf(JL_STDERR, "_register type %p, %s\n", g_mem_events.back().event.type.name, g_mem_events.back().event.type.name);
+    jl_printf(JL_STDERR, "register type %p: %s\n", type, type_str.c_str());
 }
 
 void record_allocated_value(jl_value_t *val) {
@@ -360,11 +342,11 @@ void record_allocated_value(jl_value_t *val) {
     }
 
     auto type = (jl_datatype_t*)jl_typeof(val);
-    auto type_id = register_type_string(type);
+    register_type_string(type);
 
     mem_event event;
     event.kind = ev_alloc;
-    event.event.alloc = alloc_event{(size_t)val, type_id};
+    event.event.alloc = alloc_event{(size_t)val, (size_t)type};
 
     g_mem_events.push_back(event);
 }

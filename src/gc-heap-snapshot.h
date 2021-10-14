@@ -10,17 +10,6 @@
 extern "C" {
 #endif
 
-JL_DLLEXPORT void jl_start_garbage_profile(ios_t *stream);
-JL_DLLEXPORT void jl_stop_garbage_profile(void);
-
-// ---------------------------------------------------------------------
-// functions to call from GC when garbage profiling is enabled
-// ---------------------------------------------------------------------
-void _report_gc_started(void);
-void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd);
-void _record_allocated_value(jl_value_t *val);
-void _record_freed_value(jl_taggedvalue_t *tagged_val);
-
 // ---------------------------------------------------------------------
 // Functions to call from GC when heap snapshot is enabled
 // ---------------------------------------------------------------------
@@ -41,19 +30,6 @@ void _gc_heap_snapshot_record_hidden_edge(jl_value_t *from, size_t bytes) JL_NOT
 
 
 extern int gc_heap_snapshot_enabled;
-extern ios_t *garbage_profile_out; // TODO: replace w/ bool?
-
-static inline void record_allocated_value(jl_value_t *val) {
-    if (__unlikely(garbage_profile_out != 0)) {
-        _record_allocated_value(val);
-    }
-}
-
-static inline void record_freed_value(jl_taggedvalue_t *tagged_val) {
-    if (__unlikely(garbage_profile_out != 0)) {
-        _record_freed_value(tagged_val);
-    }
-}
 
 static inline void gc_heap_snapshot_record_frame_to_object_edge(jl_gcframe_t *from, jl_value_t *to) {
     if (__unlikely(gc_heap_snapshot_enabled)) {

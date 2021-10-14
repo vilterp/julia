@@ -5,7 +5,7 @@
 
 #include "options.h"
 #include "julia_locks.h"
-#include "gc-heap-snapshot.h"
+#include "gc-garbage-profiler.h"
 #include <uv.h>
 #if !defined(_WIN32)
 #include <unistd.h>

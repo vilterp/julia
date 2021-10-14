@@ -215,7 +215,14 @@ void _report_gc_started() {
     g_frees_by_type_address.clear();
 }
 
-void _report_gc_finished() {
+void _report_gc_finished(uint64_t pause, gc_num *num) {
+    jl_printf(
+        JL_STDERR,
+        "GC: pause %fms. collected %fMB. %lld allocs total\n",
+        pause/1e6, gc_num.freed/1e6, gc_num.allocd
+    );
+
+    // sort frees
     vector<std::pair<size_t, size_t>> pairs;
     for (auto const &pair : g_frees_by_type_address) {
         pairs.push_back(pair);

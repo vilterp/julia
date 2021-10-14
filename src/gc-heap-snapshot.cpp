@@ -7,12 +7,16 @@
 
 #include <vector>
 #include <string>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <iostream>
+#include <utility>
 
 using std::vector;
 using std::string;
+using std::ostringstream;
+using std::pair;
 using std::unordered_map;
 using std::unordered_set;
 
@@ -62,7 +66,7 @@ struct Edge {
 
 const int k_node_number_of_fields = 7;
 struct Node {
-    size_t type; // index into snapshot->node_types 
+    size_t type; // index into snapshot->node_types
     string name;
     size_t id; // This should be a globally-unique counter, but we use the memory address
     size_t self_size;
@@ -217,8 +221,9 @@ size_t record_node_to_gc_snapshot(jl_value_t *a) JL_NOTSAFEPOINT {
             self_size = jl_is_array_type(type)
                 ? jl_array_nbytes((jl_array_t*)a)
                 : (size_t)jl_datatype_size(type);
-            
+
             // print full type
+            // TODO: We _definitely_ have types longer than 1024 bytes....
             ios_t str_;
             ios_mem(&str_, 1024);
             JL_STREAM* str = (JL_STREAM*)&str_;
@@ -254,6 +259,82 @@ size_t record_node_to_gc_snapshot(jl_value_t *a) JL_NOTSAFEPOINT {
     return node_idx;
 }
 
+typedef pair<jl_datatype_t*, string> inlineallocd_field_type_t;
+
+// TODO(PR): remove this
+static bool debug_log = false;
+
+bool _fieldpath_for_slot_helper(
+    vector<inlineallocd_field_type_t>& out, jl_datatype_t *objtype,
+    void *obj, void *slot)
+{
+    int nf = (int)jl_datatype_nfields(objtype);
+    jl_svec_t *field_names = jl_field_names(objtype);
+    if (debug_log) {
+        jl_((jl_value_t*)objtype);
+        jl_printf(JL_STDERR, "obj: %p, slot: %p, nf: %d\n", obj, (void*)slot, nf);
+    }
+    for (int i = 0; i < nf; i++) {
+        jl_datatype_t *field_type = (jl_datatype_t*)jl_field_type(objtype, i);
+        void *fieldaddr = (char*)obj + jl_field_offset(objtype, i);
+        ostringstream ss; // NOTE: must have same scope as field_name, below.
+        string field_name;
+        // TODO: NamedTuples should maybe have field names? Maybe another way to get them?
+        if (jl_is_tuple_type(objtype) || jl_is_namedtuple_type(objtype)) {
+            ss << "[" << i << "]";
+            field_name = ss.str().c_str();  // See scope comment, above.
+        } else {
+            jl_sym_t *name = (jl_sym_t*)jl_svecref(field_names, i);
+            field_name = jl_symbol_name(name);
+        }
+        if (debug_log) {
+            jl_printf(JL_STDERR, "%d - field_name: %s fieldaddr: %p\n", i, field_name.c_str(), fieldaddr);
+        }
+        if (fieldaddr >= slot) {
+            out.push_back(inlineallocd_field_type_t(objtype, field_name));
+            return true;
+        }
+        // If the field is an inline-allocated struct
+        if (jl_stored_inline((jl_value_t*)field_type)) {
+            bool found = _fieldpath_for_slot_helper(out, field_type, fieldaddr, slot);
+            if (found) {
+                out.push_back(inlineallocd_field_type_t(field_type, field_name));
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+vector<inlineallocd_field_type_t> _fieldpath_for_slot(jl_value_t *obj, void *slot) {
+    jl_datatype_t *vt = (jl_datatype_t*)jl_typeof(obj);
+    // TODO(PR): Remove this debugging code
+    if (vt->name->module == jl_main_module) {
+        // debug_log = true;
+    }
+
+    vector<inlineallocd_field_type_t> result;
+    bool found = _fieldpath_for_slot_helper(result, vt, obj, slot);
+
+    debug_log = false;
+
+    // TODO: maybe don't need the return value here actually...?
+    if (!found) {
+        // TODO: Debug these failures. Some of them seem really wrong, like with the slot
+        // being _kilobytes_ past the start of the object for an object with 1 pointer and 1
+        // field...
+        jl_printf(JL_STDERR, "WARNING: No fieldpath found for obj: %p slot: %p ", (void*)obj, (void*)slot);
+        jl_datatype_t* type = (jl_datatype_t*)jl_typeof(obj);
+        if (jl_is_datatype(type)) {
+            jl_printf(JL_STDERR, "typeof: ");
+            jl_static_show(JL_STDERR, (jl_value_t*)type);
+        }
+        jl_printf(JL_STDERR, "\n");
+    }
+    // NOTE THE RETURNED VECTOR IS REVERSED
+    return result;
+}
+
 void _gc_heap_snapshot_record_root(jl_value_t *root, char *name) JL_NOTSAFEPOINT {
     record_node_to_gc_snapshot(root);
 
@@ -286,7 +367,7 @@ size_t _record_stack_frame_node(HeapSnapshot *snapshot, jl_gcframe_t *frame) {
         // outgoing edges
         vector<Edge>(),
     };
-    
+
     auto node_idx = snapshot->nodes.size();
     snapshot->node_ptr_to_index_map.insert(val, {frame, node_idx});
     snapshot->nodes.push_back(frame_node);
@@ -336,35 +417,25 @@ void _gc_heap_snapshot_record_module_edge(jl_module_t *from, jl_value_t *to, cha
                     g_snapshot->names.find_or_create_string_id(name));
 }
 
-void _gc_heap_snapshot_record_object_edge(jl_value_t *from, jl_value_t *to, size_t field_index) JL_NOTSAFEPOINT {
+void _gc_heap_snapshot_record_object_edge(jl_value_t *from, jl_value_t *to, void* slot) JL_NOTSAFEPOINT {
     jl_datatype_t *type = (jl_datatype_t*)jl_typeof(from);
 
-    if (field_index < 0 || field_index > jl_datatype_nfields(type)) {
-        // TODO: We're getting -1 in some cases
-        jl_printf(JL_STDERR, "WARNING - incorrect field index (%d) for type\n", field_index);
-        jl_(type);
-        return;
+    auto field_paths = _fieldpath_for_slot(from, slot);
+    // Build the new field name by joining the strings, and/or use the struct + field names
+    // to create a bunch of edges + nodes
+    // (iterate the vector in reverse - the last element is the first path)
+    // TODO: Prefer to create intermediate edges and nodes instead of a combined string path.
+    string path;
+    for (auto it = field_paths.rbegin(); it != field_paths.rend(); ++it) {
+        // ...
+        path += it->second;
+        if ( it + 1 != field_paths.rend() ) {
+            path += ".";
+        }
     }
-
-    // TODO: It seems like NamedTuples should have field names? Maybe there's another way to get them?
-    if (jl_is_tuple_type(type) || jl_is_namedtuple_type(type)) {
-        // TODO: Maybe not okay to match element and object
-        _record_gc_edge("object", "element", from, to, field_index);
-        return;
-    }
-    if (field_index < 0 || jl_datatype_nfields(type) <= field_index) {
-        // TODO: We're getting -1 in some cases
-        //jl_printf(JL_STDERR, "WARNING - incorrect field index (%zu) for type\n", field_index);
-        //jl_(type);
-        _record_gc_edge("object", "element", from, to, field_index);
-        return;
-    }
-    jl_svec_t *field_names = jl_field_names(type);
-    jl_sym_t *name = (jl_sym_t*)jl_svecref(field_names, field_index);
-    const char *field_name = jl_symbol_name(name);
 
     _record_gc_edge("object", "property", from, to,
-                    g_snapshot->names.find_or_create_string_id(field_name));
+                    g_snapshot->names.find_or_create_string_id(path));
 }
 
 void _gc_heap_snapshot_record_internal_edge(jl_value_t *from, jl_value_t *to) JL_NOTSAFEPOINT {

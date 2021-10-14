@@ -185,83 +185,39 @@ void _add_internal_root(HeapSnapshot *snapshot) {
     snapshot->nodes.push_back(internal_root);
 }
 
-enum mem_event_kind { ev_alloc, ev_free, ev_gc_start, ev_gc_finish };
-
-struct alloc_event {
-    size_t address;
-    size_t type_address;
-};
-struct free_event {
-    size_t address;
-};
-struct gc_start_event {};
-struct gc_finish_event {};
-
-union mem_event_raw {
-    alloc_event alloc;
-    free_event free;
-    gc_start_event gc_start;
-    gc_finish_event gc_finish;
-};
-
-struct mem_event {
-    mem_event_kind kind;
-    mem_event_raw event;
-};
-
-// whether profiling is on or not
-int garbage_profiling = 0;
-// memory events accumulated during the profile
-vector<mem_event> g_mem_events;
+// TODO: wrap these up into a struct
+JL_STREAM *garbage_profile_out = nullptr;
+int gc_epoch = 0;
 // for each type, the index in mem_event where the type
 // event appears.
 unordered_map<size_t, string> g_type_name_by_address;
+unordered_map<size_t, size_t> g_type_address_by_value_address;
+unordered_map<size_t, size_t> g_frees_by_type_address;
 
-JL_DLLEXPORT void jl_start_garbage_profile() {
-    garbage_profiling = 1;
-    g_mem_events.clear();
+JL_DLLEXPORT void jl_start_garbage_profile(JL_STREAM *stream) {
+    garbage_profile_out = stream;
+    jl_printf(garbage_profile_out, "gc_epoch,type,num_freed\n");
 }
 
 bool pair_cmp(std::pair<size_t, size_t> a, std::pair<size_t, size_t> b) {
     return a.second > b.second;
 }
 
-JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
-    garbage_profiling = 0;
+JL_DLLEXPORT void jl_stop_garbage_profile() {
+    // TODO: flush file?
+    garbage_profile_out = nullptr;
+    g_type_name_by_address.clear();
+    g_type_address_by_value_address.clear();
+    g_frees_by_type_address.clear();
+}    
 
-    // compute frees by type
-    unordered_map<size_t, size_t> type_address_by_value_address;
-    unordered_map<size_t, size_t> frees_by_type_address;
+void _report_gc_started() {
+    g_frees_by_type_address.clear();
+}
 
-    auto idx = 0;
-    for (auto event : g_mem_events) {
-        switch (event.kind) {
-            case ev_alloc:
-                type_address_by_value_address[event.event.alloc.address] = event.event.alloc.type_address;
-                break;
-            case ev_free: {
-                auto value_address = event.event.free.address;
-                auto type_address = type_address_by_value_address.find(value_address);
-                if (type_address == type_address_by_value_address.end()) {
-                    continue; // TODO: warn
-                }
-                auto frees = frees_by_type_address.find(type_address->second);
-
-                if (frees == frees_by_type_address.end()) {
-                    frees_by_type_address[type_address->second] = 1;
-                } else {
-                    frees_by_type_address[type_address->second] = frees->second + 1;
-                }
-                break;
-            }
-        }
-        idx++;
-    }
-
-    // sort frees
-
+void _report_gc_finished() {
     vector<std::pair<size_t, size_t>> pairs;
-    for (auto const &pair : frees_by_type_address) {
+    for (auto const &pair : g_frees_by_type_address) {
         pairs.push_back(pair);
     }
     std::sort(pairs.begin(), pairs.end(), pair_cmp);
@@ -270,31 +226,19 @@ JL_DLLEXPORT void jl_finish_and_write_garbage_profile(JL_STREAM *stream) {
     for (auto pair : pairs) {
         auto type_str = g_type_name_by_address.find(pair.first);
         if (type_str != g_type_name_by_address.end()) {
-            jl_printf(stream, "%s: %d\n", type_str->second.c_str(), pair.second);
+            jl_printf(
+                garbage_profile_out,
+                "%d,\"%s\",%d\n",
+                gc_epoch,
+                type_str->second.c_str(),
+                pair.second
+            );
         } else {
             jl_printf(JL_STDERR, "couldn't find type %p\n", pair.first);
             // TODO: warn about missing type
         }
     }
-
-    g_mem_events.clear();
-    g_type_name_by_address.clear();
-}
-
-void report_gc_started() {
-    // if (garbage_profiling) {
-    //     mem_event event;
-    //     event.kind = ev_gc_start;
-    //     g_mem_events.push_back(event);
-    // }
-}
-
-void report_gc_finished() {
-    // if (garbage_profiling) {
-    //     mem_event event;
-    //     event.kind = ev_gc_finish;
-    //     g_mem_events.push_back(event);
-    // }
+    gc_epoch++;
 }
 
 string _type_as_string(jl_datatype_t *type) {
@@ -334,31 +278,36 @@ void register_type_string(jl_datatype_t *type) {
     g_type_name_by_address[(size_t)type] = type_str;
 }
 
-void record_allocated_value(jl_value_t *val) {
-    if (!garbage_profiling) {
+void _record_allocated_value(jl_value_t *val) {
+    if (garbage_profile_out == nullptr) {
         return;
     }
 
     auto type = (jl_datatype_t*)jl_typeof(val);
     register_type_string(type);
 
-    mem_event event;
-    event.kind = ev_alloc;
-    event.event.alloc = alloc_event{(size_t)val, (size_t)type};
-
-    g_mem_events.push_back(event);
+    g_type_address_by_value_address[(size_t)val] = (size_t)type;
 }
 
-void record_freed_value(jl_taggedvalue_t *tagged_val) {
-    if (!garbage_profiling) {
+void _record_freed_value(jl_taggedvalue_t *tagged_val) {
+    if (garbage_profile_out == nullptr) {
         return;
     }
 
     jl_value_t *val = jl_valueof(tagged_val);
-    mem_event event;
-    event.kind = ev_free;
-    event.event.free = free_event{(size_t)val};
-    g_mem_events.push_back(event);
+    
+    auto value_address = (size_t)val;
+    auto type_address = g_type_address_by_value_address.find(value_address);
+    if (type_address == g_type_address_by_value_address.end()) {
+        return; // TODO: warn
+    }
+    auto frees = g_frees_by_type_address.find(type_address->second);
+
+    if (frees == g_frees_by_type_address.end()) {
+        g_frees_by_type_address[type_address->second] = 1;
+    } else {
+        g_frees_by_type_address[type_address->second] = frees->second + 1;
+    }
 }
 
 // mimicking https://github.com/nodejs/node/blob/5fd7a72e1c4fbaf37d3723c4c81dce35c149dc84/deps/v8/src/profiler/heap-snapshot-generator.cc#L597-L597

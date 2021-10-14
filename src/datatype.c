@@ -804,8 +804,6 @@ JL_DLLEXPORT jl_value_t *jl_new_bits(jl_value_t *dt, const void *data)
     jl_value_t *v = jl_gc_alloc(ct->ptls, nb, bt);
     memcpy(jl_assume_aligned(v, sizeof(void*)), data, nb);
 
-    record_allocated_value(v);
-
     return v;
 }
 
@@ -1290,8 +1288,6 @@ JL_DLLEXPORT jl_value_t *jl_new_structv(jl_datatype_t *type, jl_value_t **args, 
         JL_GC_POP();
     }
 
-    record_allocated_value(jv);
-
     return jv;
 }
 
@@ -1339,8 +1335,6 @@ JL_DLLEXPORT jl_value_t *jl_new_structt(jl_datatype_t *type, jl_value_t *tup)
         set_nth_field(type, jv, i, fi, 0);
     }
     JL_GC_POP();
-
-    record_allocated_value(jv);
 
     return jv;
 }

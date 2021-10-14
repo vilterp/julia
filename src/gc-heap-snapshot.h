@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-JL_DLLEXPORT void jl_start_garbage_profile(JL_STREAM *stream);
+JL_DLLEXPORT void jl_start_garbage_profile(ios_t *stream);
 JL_DLLEXPORT void jl_stop_garbage_profile(void);
 
 // ---------------------------------------------------------------------
@@ -41,7 +41,7 @@ void _gc_heap_snapshot_record_hidden_edge(jl_value_t *from, size_t bytes) JL_NOT
 
 
 extern int gc_heap_snapshot_enabled;
-extern JL_STREAM *garbage_profile_out; // TODO: replace w/ bool?
+extern ios_t *garbage_profile_out; // TODO: replace w/ bool?
 
 static inline void record_allocated_value(jl_value_t *val) {
     if (__unlikely(garbage_profile_out != 0)) {

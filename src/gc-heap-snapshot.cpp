@@ -186,7 +186,7 @@ void _add_internal_root(HeapSnapshot *snapshot) {
 }
 
 // TODO: wrap these up into a struct
-JL_STREAM *garbage_profile_out = nullptr;
+ios_t *garbage_profile_out = nullptr;
 int gc_epoch = 0;
 // for each type, the index in mem_event where the type
 // event appears.
@@ -194,9 +194,9 @@ unordered_map<size_t, string> g_type_name_by_address;
 unordered_map<size_t, size_t> g_type_address_by_value_address;
 unordered_map<size_t, size_t> g_frees_by_type_address;
 
-JL_DLLEXPORT void jl_start_garbage_profile(JL_STREAM *stream) {
+JL_DLLEXPORT void jl_start_garbage_profile(ios_t *stream) {
     garbage_profile_out = stream;
-    jl_printf(garbage_profile_out, "gc_epoch,type,num_freed\n");
+    ios_printf(garbage_profile_out, "gc_epoch,type,num_freed\n");
 }
 
 bool pair_cmp(std::pair<size_t, size_t> a, std::pair<size_t, size_t> b) {
@@ -235,13 +235,9 @@ void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd) {
     for (auto pair : pairs) {
         auto type_str = g_type_name_by_address.find(pair.first);
         if (type_str != g_type_name_by_address.end()) {
-            jl_printf(
-                garbage_profile_out,
-                "%d,\"%s\",%d\n",
-                gc_epoch,
-                type_str->second.c_str(),
-                pair.second
-            );
+            ios_printf(garbage_profile_out, "%d,", gc_epoch);
+            print_str_escape_json(garbage_profile_out, type_str->second);
+            ios_printf(garbage_profile_out, ",%d\n", pair.second);
         } else {
             jl_printf(JL_STDERR, "couldn't find type %p\n", pair.first);
             // TODO: warn about missing type
@@ -548,7 +544,6 @@ void _gc_heap_snapshot_record_array_edge(jl_value_t *from, jl_value_t *to, size_
 }
 
 void _gc_heap_snapshot_record_module_edge(jl_module_t *from, jl_value_t *to, char *name) JL_NOTSAFEPOINT {
-    //jl_printf(JL_STDERR, "module: %p  binding:%p  name:%s\n", from, to, name);
     _record_gc_edge("object", "property", (jl_value_t *)from, to,
                     g_snapshot->names.find_or_create_string_id(name));
 }

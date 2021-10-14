@@ -5,7 +5,6 @@
 #include "julia_internal.h"
 #include "gc.h"
 
-#include <algorithm>
 #include <vector>
 #include <string>
 #include <sstream>
@@ -41,6 +40,18 @@ void print_str_escape_json(ios_t *stream, const std::string &s) {
             } else {
                 ios_printf(stream, "%c", *c);
             }
+        }
+    }
+    ios_printf(stream, "\"");
+}
+
+void print_str_escape_csv(ios_t *stream, const std::string &s) {
+    ios_printf(stream, "\"");
+    for (auto c = s.cbegin(); c != s.cend(); c++) {
+        switch (*c) {
+        case '"': ios_printf(stream, "\"\""); break;
+        default:
+            ios_printf(stream, "%c", *c);
         }
     }
     ios_printf(stream, "\"");
@@ -225,18 +236,11 @@ void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd) {
     );
 
     // sort frees
-    vector<std::pair<size_t, size_t>> pairs;
     for (auto const &pair : g_frees_by_type_address) {
-        pairs.push_back(pair);
-    }
-    std::sort(pairs.begin(), pairs.end(), pair_cmp);
-
-    // print it out
-    for (auto pair : pairs) {
         auto type_str = g_type_name_by_address.find(pair.first);
         if (type_str != g_type_name_by_address.end()) {
             ios_printf(garbage_profile_out, "%d,", gc_epoch);
-            print_str_escape_json(garbage_profile_out, type_str->second);
+            print_str_escape_csv(garbage_profile_out, type_str->second);
             ios_printf(garbage_profile_out, ",%d\n", pair.second);
         } else {
             jl_printf(JL_STDERR, "couldn't find type %p\n", pair.first);

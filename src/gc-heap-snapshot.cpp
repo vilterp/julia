@@ -298,7 +298,7 @@ vector<inlineallocd_field_type_t> _fieldpath_for_slot(jl_value_t *obj, void *slo
     jl_datatype_t *vt = (jl_datatype_t*)jl_typeof(obj);
     // TODO(PR): Remove this debugging code
     if (vt->name->module == jl_main_module) {
-        // debug_log = true;
+        debug_log = true;
     }
 
     vector<inlineallocd_field_type_t> result;

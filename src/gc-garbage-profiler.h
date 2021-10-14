@@ -10,8 +10,8 @@
 extern "C" {
 #endif
 
-JL_DLLEXPORT void jl_start_garbage_profile(ios_t *stream);
-JL_DLLEXPORT void jl_stop_garbage_profile(void);
+JL_DLLEXPORT void jl_start_alloc_profile(void);
+JL_DLLEXPORT void jl_finish_and_write_alloc_profile(ios_t *stream);
 
 void _report_gc_started(void);
 void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd);
@@ -30,19 +30,19 @@ struct StackTrieNode {
 
 struct AllocProfile {
     StackTrieNode root_node;
-    unordered_map<size_t, string> g_type_name_by_address;
+    unordered_map<size_t, string> type_name_by_address;
 }
 
 AllocProfile *g_alloc_profile;
 
 static inline void record_allocated_value(jl_value_t *val) {
-    if (__unlikely(garbage_profile_out != 0)) {
+    if (__unlikely(g_alloc_profile != 0)) {
         _record_allocated_value(val);
     }
 }
 
 static inline void record_freed_value(jl_taggedvalue_t *tagged_val) {
-    if (__unlikely(garbage_profile_out != 0)) {
+    if (__unlikely(g_alloc_profile != 0)) {
         _record_freed_value(tagged_val);
     }
 }

@@ -59,23 +59,19 @@ string _type_as_string(jl_datatype_t *type) {
 
 // == exported interface ==
 
-JL_DLLEXPORT void jl_gc_take_heap_snapshot() {
-    garbage_profile_out = stream;
-    ios_printf(garbage_profile_out, "gc_epoch,type,num_freed\n");
+JL_DLLEXPORT void jl_start_alloc_profile() {
+    g_alloc_profile = AllocProfile{};
 }
 
 JL_DLLEXPORT void jl_finish_and_write_alloc_profile(ios_t *stream) {
-    // TODO: flush file?
-    garbage_profile_out = nullptr;
-    g_type_name_by_address.clear();
-    g_type_address_by_value_address.clear();
-    g_frees_by_type_address.clear();
-}    
+    jl_printf(stream, "TODO: actually write alloc profile\n");
+    // clear the alloc profile
+}
 
 // == callbacks called into by the outside ==
 
 void _report_gc_started() {
-    g_frees_by_type_address.clear();
+    // TODO: anything?
 }
 
 // TODO: figure out how to pass all of these in as a struct
@@ -87,60 +83,27 @@ void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd) {
         pause/1e6, freed/1e6, allocd
     );
 
-    // sort frees
-    for (auto const &pair : g_frees_by_type_address) {
-        auto type_str = g_type_name_by_address.find(pair.first);
-        if (type_str != g_type_name_by_address.end()) {
-            ios_printf(garbage_profile_out, "%d,", gc_epoch);
-            print_str_escape_csv(garbage_profile_out, type_str->second);
-            ios_printf(garbage_profile_out, ",%d\n", pair.second);
-        } else {
-            jl_printf(JL_STDERR, "couldn't find type %p\n", pair.first);
-            // TODO: warn about missing type
-        }
-    }
-    gc_epoch++;
+    // TODO: anything else?
 }
 
 void register_type_string(jl_datatype_t *type) {
-    auto id = g_type_name_by_address.find((size_t)type);
-    if (id != g_type_name_by_address.end()) {
+    auto id = g_alloc_profile->type_name_by_address.find((size_t)type);
+    if (id != g_alloc_profile->type_name_by_address.end()) {
         return;
     }
 
     string type_str = _type_as_string(type);
-    g_type_name_by_address[(size_t)type] = type_str;
+    g_alloc_profile->type_name_by_address[(size_t)type] = type_str;
 }
 
 void _record_allocated_value(jl_value_t *val) {
-    if (garbage_profile_out == nullptr) {
-        return;
-    }
-
     auto type = (jl_datatype_t*)jl_typeof(val);
     register_type_string(type);
 
-    g_type_address_by_value_address[(size_t)val] = (size_t)type;
+    // TODO: insert into trie
 }
 
 void _record_freed_value(jl_taggedvalue_t *tagged_val) {
-    if (garbage_profile_out == nullptr) {
-        return;
-    }
-
-    jl_value_t *val = jl_valueof(tagged_val);
-    
-    auto value_address = (size_t)val;
-    auto type_address = g_type_address_by_value_address.find(value_address);
-    if (type_address == g_type_address_by_value_address.end()) {
-        return; // TODO: warn
-    }
-    auto frees = g_frees_by_type_address.find(type_address->second);
-
-    if (frees == g_frees_by_type_address.end()) {
-        g_frees_by_type_address[type_address->second] = 1;
-    } else {
-        g_frees_by_type_address[type_address->second] = frees->second + 1;
-    }
+    // TODO: anything?
 }
 

@@ -9,7 +9,12 @@
 #include <unordered_map>
 
 using std::string;
+using std::vector;
 using std::unordered_map;
+
+// == global variables manipulated by callbacks ==
+
+AllocProfile *g_alloc_profile;
 
 // == utility functions ==
 
@@ -52,29 +57,14 @@ string _type_as_string(jl_datatype_t *type) {
     }
 }
 
-// == global variables manipulated by callbacks ==
-// TODO: wrap these up into a struct
-
-ios_t *garbage_profile_out = nullptr;
-int gc_epoch = 0;
-// for each type, the index in mem_event where the type
-// event appears.
-unordered_map<size_t, string> g_type_name_by_address;
-unordered_map<size_t, size_t> g_type_address_by_value_address;
-unordered_map<size_t, size_t> g_frees_by_type_address;
-
 // == exported interface ==
 
-JL_DLLEXPORT void jl_start_garbage_profile(ios_t *stream) {
+JL_DLLEXPORT void jl_gc_take_heap_snapshot() {
     garbage_profile_out = stream;
     ios_printf(garbage_profile_out, "gc_epoch,type,num_freed\n");
 }
 
-bool pair_cmp(std::pair<size_t, size_t> a, std::pair<size_t, size_t> b) {
-    return a.second > b.second;
-}
-
-JL_DLLEXPORT void jl_stop_garbage_profile() {
+JL_DLLEXPORT void jl_finish_and_write_alloc_profile(ios_t *stream) {
     // TODO: flush file?
     garbage_profile_out = nullptr;
     g_type_name_by_address.clear();

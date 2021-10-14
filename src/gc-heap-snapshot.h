@@ -17,7 +17,7 @@ JL_DLLEXPORT void jl_stop_garbage_profile(void);
 // functions to call from GC when garbage profiling is enabled
 // ---------------------------------------------------------------------
 void _report_gc_started(void);
-void _report_gc_finished(void);
+void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd);
 void _record_allocated_value(jl_value_t *val);
 void _record_freed_value(jl_taggedvalue_t *tagged_val);
 

@@ -215,11 +215,13 @@ void _report_gc_started() {
     g_frees_by_type_address.clear();
 }
 
-void _report_gc_finished(uint64_t pause, gc_num *num) {
+// TODO: figure out how to pass all of these in as a struct
+void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd) {
+    // TODO: figure out how to put in commas
     jl_printf(
         JL_STDERR,
         "GC: pause %fms. collected %fMB. %lld allocs total\n",
-        pause/1e6, gc_num.freed/1e6, gc_num.allocd
+        pause/1e6, freed/1e6, allocd
     );
 
     // sort frees

@@ -131,7 +131,7 @@ function start_alloc_profile()
     ccall(:jl_start_alloc_profile, Cvoid, ())
 end
 
-function finish_and_write_alloc_profile()
+function finish_and_write_alloc_profile(io)
     ccall(:jl_finish_and_write_alloc_profile, Cvoid, (Ptr{Cvoid},), io.handle)
 end
 

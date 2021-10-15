@@ -22,27 +22,16 @@ void _record_freed_value(jl_taggedvalue_t *tagged_val);
 // functions to call from GC when garbage profiling is enabled
 // ---------------------------------------------------------------------
 
-struct StackTrieNode {
-    string name;
-    vector<StackTrieNode> children;
-    unordered_map<size_t, size_t> allocs_by_type_id;
-}
-
-struct AllocProfile {
-    StackTrieNode root_node;
-    unordered_map<size_t, string> type_name_by_address;
-}
-
-AllocProfile *g_alloc_profile;
+extern int g_alloc_profile_enabled;
 
 static inline void record_allocated_value(jl_value_t *val) {
-    if (__unlikely(g_alloc_profile != 0)) {
+    if (__unlikely(g_alloc_profile_enabled != 0)) {
         _record_allocated_value(val);
     }
 }
 
 static inline void record_freed_value(jl_taggedvalue_t *tagged_val) {
-    if (__unlikely(g_alloc_profile != 0)) {
+    if (__unlikely(g_alloc_profile_enabled != 0)) {
         _record_freed_value(tagged_val);
     }
 }

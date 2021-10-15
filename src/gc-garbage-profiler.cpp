@@ -7,13 +7,26 @@
 
 #include <string>
 #include <unordered_map>
+#include <vector>
 
+using std::unordered_map;
 using std::string;
 using std::vector;
-using std::unordered_map;
+
+struct StackTrieNode {
+    string name;
+    vector<StackTrieNode> children;
+    unordered_map<size_t, size_t> allocs_by_type_id;
+};
+
+struct AllocProfile {
+    StackTrieNode root_node;
+    unordered_map<size_t, string> type_name_by_address;
+};
 
 // == global variables manipulated by callbacks ==
 
+int g_alloc_profile_enabled = 0;
 AllocProfile *g_alloc_profile;
 
 // == utility functions ==
@@ -60,12 +73,14 @@ string _type_as_string(jl_datatype_t *type) {
 // == exported interface ==
 
 JL_DLLEXPORT void jl_start_alloc_profile() {
-    g_alloc_profile = AllocProfile{};
+    g_alloc_profile_enabled = 1;
+    g_alloc_profile = new AllocProfile{};
 }
 
 JL_DLLEXPORT void jl_finish_and_write_alloc_profile(ios_t *stream) {
-    jl_printf(stream, "TODO: actually write alloc profile\n");
-    // clear the alloc profile
+    g_alloc_profile_enabled = 0;
+    ios_printf(stream, "TODO: actually write alloc profile\n");
+    // TODO: clear the alloc profile
 }
 
 // == callbacks called into by the outside ==

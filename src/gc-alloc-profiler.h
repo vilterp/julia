@@ -1,7 +1,7 @@
 // This file is a part of Julia. License is MIT: https://julialang.org/license
 
-#ifndef JL_GC_GARBAGE_PROFILER_H
-#define JL_GC_GARBAGE_PROFILER_H
+#ifndef JL_GC_ALLOC_PROFILER_H
+#define JL_GC_ALLOC_PROFILER_H
 
 #include "julia.h"
 #include "ios.h"
@@ -19,7 +19,7 @@ void _record_allocated_value(jl_value_t *val);
 void _record_freed_value(jl_taggedvalue_t *tagged_val);
 
 // ---------------------------------------------------------------------
-// functions to call from GC when garbage profiling is enabled
+// functions to call from GC when alloc profiling is enabled
 // ---------------------------------------------------------------------
 
 extern int g_alloc_profile_enabled;
@@ -41,4 +41,4 @@ static inline void record_freed_value(jl_taggedvalue_t *tagged_val) {
 #endif
 
 
-#endif  // JL_GC_GARBAGE_PROFILER_H
+#endif  // JL_GC_ALLOC_PROFILER_H

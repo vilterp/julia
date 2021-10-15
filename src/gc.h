@@ -27,7 +27,7 @@
 #endif
 #include "julia_assert.h"
 #include "gc-heap-snapshot.h"
-#include "gc-garbage-profiler.h"
+#include "gc-alloc-profiler.h"
 
 #ifdef __cplusplus
 extern "C" {

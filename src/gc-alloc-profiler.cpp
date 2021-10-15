@@ -1,6 +1,6 @@
 // This file is a part of Julia. License is MIT: https://julialang.org/license
 
-#include "gc-garbage-profiler.h"
+#include "gc-alloc-profiler.h"
 
 #include "julia_internal.h"
 #include "gc.h"
@@ -15,6 +15,7 @@ using std::vector;
 
 struct StackTrieNode {
     string name;
+    size_t id;
     vector<StackTrieNode> children;
     unordered_map<size_t, size_t> allocs_by_type_id;
 };

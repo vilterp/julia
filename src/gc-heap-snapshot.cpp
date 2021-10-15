@@ -218,9 +218,15 @@ size_t record_node_to_gc_snapshot(jl_value_t *a) JL_NOTSAFEPOINT {
             name = jl_symbol_name((jl_sym_t*)a);
             self_size = name.length();
         } else if (jl_is_datatype(type)) {
-            self_size = jl_is_array_type(type)
-                ? jl_array_nbytes((jl_array_t*)a)
-                : (size_t)jl_datatype_size(type);
+            if (jl_is_array_type(type)) {
+                // Array types don't have a size in julia, so we just use the size of the
+                // C struct. The size of the data buffer will be attributed later in the
+                // edge from the array to its buffer.
+                self_size = sizeof(jl_array_t);
+            }
+            else {
+                self_size = (size_t)jl_datatype_size(type);
+            }
 
             // print full type
             // TODO: We _definitely_ have types longer than 1024 bytes....
@@ -442,6 +448,20 @@ void _gc_heap_snapshot_record_internal_edge(jl_value_t *from, jl_value_t *to) JL
     // TODO: probably need to inline this here and make some changes
     _record_gc_edge("object", "internal", from, to,
                     g_snapshot->names.find_or_create_string_id("<internal>"));
+
+    auto &to_node = g_snapshot->nodes.back();
+
+    // Check for array buffers, to record their size, which we can only tell by looking at
+    // the parent object:
+    {
+        jl_datatype_t* type = (jl_datatype_t*)jl_typeof(from);
+        if (jl_is_array_type(type)) {
+            // Add the size to the buffer, which you can only determine from the parent object.
+            auto buffer_size = jl_array_nbytes((jl_array_t*)from);
+            to_node.self_size = buffer_size;
+        }
+    }
+
 }
 
 void _gc_heap_snapshot_record_hidden_edge(jl_value_t *from, size_t bytes) JL_NOTSAFEPOINT {

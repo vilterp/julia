@@ -24,6 +24,7 @@
 #endif
 #endif
 #include "julia_assert.h"
+#include "gc-garbage-profiler.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -14,16 +14,31 @@ using std::string;
 using std::vector;
 
 struct StackTrieNode {
-    string name;
+    jl_bt_element_t frame;
     size_t id;
     vector<StackTrieNode> children;
-    unordered_map<size_t, size_t> allocs_by_type_id;
+    unordered_map<size_t, size_t> allocs_by_type_address;
 };
 
 struct AllocProfile {
-    StackTrieNode root_node;
+    StackTrieNode root;
     unordered_map<size_t, string> type_name_by_address;
 };
+
+// Insert a record into the trie indicating that we allocated the
+// given type at the given stack.
+//
+// TODO: move to method on StackTrieNode
+// I don't know how to C++
+void stack_trie_insert_alloc(StackTrieNode *trie, vector<jl_bt_element_t> stack, size_t type_id) {
+    jl_printf(JL_STDERR, "TODO: insert stack\n");
+}
+
+void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
+    // walk the trie, serializing nodes and edges as we go
+    // maybe directly as graphviz? idk
+    ios_printf(out, "TODO: actually write alloc profile\n");
+}
 
 // == global variables manipulated by callbacks ==
 
@@ -80,8 +95,12 @@ JL_DLLEXPORT void jl_start_alloc_profile() {
 
 JL_DLLEXPORT void jl_finish_and_write_alloc_profile(ios_t *stream) {
     g_alloc_profile_enabled = 0;
-    ios_printf(stream, "TODO: actually write alloc profile\n");
-    // TODO: clear the alloc profile
+    
+    alloc_profile_serialize(stream, g_alloc_profile);
+
+    // TODO: something to free the alloc profile?
+    // I don't know how to C++
+    g_alloc_profile = nullptr;
 }
 
 // == callbacks called into by the outside ==
@@ -112,11 +131,30 @@ void register_type_string(jl_datatype_t *type) {
     g_alloc_profile->type_name_by_address[(size_t)type] = type_str;
 }
 
+vector<jl_bt_element_t> get_stack() {
+    // TODO: don't allocate this every time
+    jl_bt_element_t *bt_data = (jl_bt_element_t*) malloc(JL_MAX_BT_SIZE);
+
+    // TODO: tune the number of frames that are skipped
+    size_t num_frames = rec_backtrace(bt_data, JL_MAX_BT_SIZE, 1);
+
+    // TODO: maybe just return the raw buffer
+    vector<jl_bt_element_t> stack;
+    for (size_t i = 0; i < num_frames; i++) {
+        stack.push_back(bt_data[i]);
+    }
+
+    return stack;
+}
+
 void _record_allocated_value(jl_value_t *val) {
     auto type = (jl_datatype_t*)jl_typeof(val);
     register_type_string(type);
 
-    // TODO: insert into trie
+    // TODO: get stack, push into vector
+    auto stack = get_stack();
+
+    stack_trie_insert_alloc(&g_alloc_profile->root, stack, (size_t)type);
 }
 
 void _record_freed_value(jl_taggedvalue_t *tagged_val) {

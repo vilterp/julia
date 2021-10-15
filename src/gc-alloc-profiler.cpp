@@ -138,9 +138,12 @@ vector<jl_bt_element_t> get_stack() {
     // TODO: tune the number of frames that are skipped
     size_t num_frames = rec_backtrace(bt_data, JL_MAX_BT_SIZE, 1);
 
+    jl_printf(JL_STDERR, "==============");
+
     // TODO: maybe just return the raw buffer
     vector<jl_bt_element_t> stack;
     for (size_t i = 0; i < num_frames; i++) {
+        jl_print_bt_entry_codeloc(&bt_data[i]);
         stack.push_back(bt_data[i]);
     }
 

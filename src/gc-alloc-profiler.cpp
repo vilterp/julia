@@ -16,7 +16,12 @@ using std::vector;
 struct StackFrame {
     string func_name;
     string file_name;
-    intptr_t line;
+    intptr_t line_no;
+};
+
+struct Alloc {
+    size_t type_address;
+    vector<StackFrame> stack;
 };
 
 struct StackTrieNode {
@@ -29,6 +34,8 @@ struct StackTrieNode {
 struct AllocProfile {
     StackTrieNode root;
     unordered_map<size_t, string> type_name_by_address;
+
+    vector<Alloc> allocs;
 };
 
 // Insert a record into the trie indicating that we allocated the
@@ -36,40 +43,34 @@ struct AllocProfile {
 //
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
-void stack_trie_insert_alloc(StackTrieNode *trie, vector<StackFrame> stack, size_t type_id) {
-    jl_printf(JL_STDOUT, "stack_trie_insert_alloc(type_id: %zu) ======\n", type_id);
-    for (auto frame : stack) {
-        jl_printf(
-            JL_STDOUT, "  %s at %s:%d\n",
-            frame.func_name.c_str(), frame.file_name.c_str(), frame.line
-        );
-    }
+void record_alloc(AllocProfile *profile, vector<StackFrame> stack, size_t type_address) {
+    profile->allocs.push_back(Alloc{
+        type_address,
+        stack
+    });
 }
 
 void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
-    // walk the trie, serializing nodes and edges as we go
-    // maybe directly as graphviz? idk
-    ios_printf(out, "TODO: actually write alloc profile\n");
+    for (auto alloc : profile->allocs) {
+        ios_printf(
+            out, "type: %s\n",
+            profile->type_name_by_address[alloc.type_address].c_str()
+        );
+        for (auto frame : alloc.stack) {
+            ios_printf(
+                out, "  %s at %s:%d\n",
+                frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
+            );
+        }
+    }
 }
 
 // == global variables manipulated by callbacks ==
 
-int g_alloc_profile_enabled = 0;
 AllocProfile *g_alloc_profile;
+ios_t *g_alloc_profile_out;
 
 // == utility functions ==
-
-void print_str_escape_csv(ios_t *stream, const std::string &s) {
-    ios_printf(stream, "\"");
-    for (auto c = s.cbegin(); c != s.cend(); c++) {
-        switch (*c) {
-        case '"': ios_printf(stream, "\"\""); break;
-        default:
-            ios_printf(stream, "%c", *c);
-        }
-    }
-    ios_printf(stream, "\"");
-}
 
 string _type_as_string(jl_datatype_t *type) {
     if ((uintptr_t)type < 4096U) {
@@ -100,38 +101,20 @@ string _type_as_string(jl_datatype_t *type) {
 
 // == exported interface ==
 
-JL_DLLEXPORT void jl_start_alloc_profile() {
-    g_alloc_profile_enabled = 1;
+JL_DLLEXPORT void jl_start_alloc_profile(ios_t *stream) {
+    g_alloc_profile_out = stream;
     g_alloc_profile = new AllocProfile{};
 }
 
-JL_DLLEXPORT void jl_finish_and_write_alloc_profile(ios_t *stream) {
-    g_alloc_profile_enabled = 0;
+JL_DLLEXPORT void jl_stop_alloc_profile() {
+    g_alloc_profile_out = nullptr;
     
-    alloc_profile_serialize(stream, g_alloc_profile);
-
     // TODO: something to free the alloc profile?
     // I don't know how to C++
     g_alloc_profile = nullptr;
 }
 
 // == callbacks called into by the outside ==
-
-void _report_gc_started() {
-    // TODO: anything?
-}
-
-// TODO: figure out how to pass all of these in as a struct
-void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd) {
-    // TODO: figure out how to put in commas
-    jl_printf(
-        JL_STDERR,
-        "GC: pause %fms. collected %fMB. %lld allocs total\n",
-        pause/1e6, freed/1e6, allocd
-    );
-
-    // TODO: anything else?
-}
 
 void register_type_string(jl_datatype_t *type) {
     auto id = g_alloc_profile->type_name_by_address.find((size_t)type);
@@ -199,6 +182,8 @@ vector<StackFrame> get_stack() {
         }
     }
 
+    free(bt_data);
+
     return stack;
 }
 
@@ -209,10 +194,21 @@ void _record_allocated_value(jl_value_t *val) {
     // TODO: get stack, push into vector
     auto stack = get_stack();
 
-    stack_trie_insert_alloc(&g_alloc_profile->root, stack, (size_t)type);
+    record_alloc(g_alloc_profile, stack, (size_t)type);
 }
 
-void _record_freed_value(jl_taggedvalue_t *tagged_val) {
-    // TODO: anything?
+void _report_gc_started() {
+    // ...
 }
 
+// TODO: figure out how to pass all of these in as a struct
+void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd) {
+    // TODO: figure out how to put in commas
+    jl_printf(
+        JL_STDERR,
+        "GC: pause %fms. collected %fMB. %lld allocs total\n",
+        pause/1e6, freed/1e6, allocd
+    );
+
+    alloc_profile_serialize(g_alloc_profile_out, g_alloc_profile);
+}

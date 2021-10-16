@@ -26,7 +26,7 @@ struct RawFrame {
 
 struct StackTrieNode {
     // keys: raw bt element
-    unordered_map<string, StackTrieNode*> children;
+    unordered_map<RawFrame, StackTrieNode*> children;
     unordered_map<size_t, size_t> allocs_by_type_address;
 };
 
@@ -140,7 +140,7 @@ string entry_to_string(jl_bt_element_t *entry) {
 }
 
 // TODO: pass size as well
-void trie_insert(StackTrieNode *node, vector<string> path, size_t idx, size_t type_address) {
+void trie_insert(StackTrieNode *node, vector<RawFrame> path, size_t idx, size_t type_address) {
     if (idx == path.size()) {
         auto allocs = node->allocs_by_type_address.find(type_address);
         if (allocs == node->allocs_by_type_address.end()) {
@@ -170,7 +170,7 @@ void trie_insert(StackTrieNode *node, vector<string> path, size_t idx, size_t ty
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
 void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address) {
-    vector<string> stack_vec;
+    vector<RawFrame> stack_vec;
 
     int i = 0;
     while (i < stack.size) {
@@ -181,14 +181,8 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
             entry,
             entry_size
         };
-        auto other_str = entry_to_string(entry);
-        auto reconstructed_str = entry_to_string(raw_frame.data);
-        if (other_str != reconstructed_str) {
-            jl_printf(JL_STDERR, "normal: %s; reconstructed: %s\n", other_str.c_str(), reconstructed_str.c_str());
-        }
 
-        stack_vec.push_back(other_str);
-
+        stack_vec.push_back(raw_frame);
         i += entry_size;
     }
 

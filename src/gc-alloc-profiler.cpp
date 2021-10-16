@@ -119,14 +119,14 @@ string entry_to_string(jl_bt_element_t *entry) {
     if (jl_bt_is_native(entry)) {
         auto frame = get_native_frame(entry[0].uintptr);
         ios_printf(
-            &str, "%s at %s:%d;",
+            &str, "%s at %s:%d",
             frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
         );
     } else {
         auto frames = get_julia_frames(entry);
         for (auto frame : frames) {
             ios_printf(
-                &str, "%s at %s:%d;",
+                &str, "%s at %s:%d",
                 frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
             );
         }    
@@ -189,7 +189,12 @@ void print_indent(ios_t *out, int level) {
 void trie_serialize(ios_t *out, AllocProfile *profile, StackTrieNode *node, int level) {
     for (auto child : node->children) {
         print_indent(out, level);
-        ios_printf(out, "%s\n", child.first.c_str());
+        ios_printf(out, "%s: ", child.first.c_str());
+        for (auto alloc_count : child.second->allocs_by_type_address) {
+            auto type_str = profile->type_name_by_address[alloc_count.first];
+            ios_printf(out, "%s: %d, ", type_str.c_str(), alloc_count.second);
+        }
+        ios_printf(out, "\n");
         // TODO: print the types as well
         trie_serialize(out, profile, child.second, level+1);
     }

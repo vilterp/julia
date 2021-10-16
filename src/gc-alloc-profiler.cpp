@@ -113,13 +113,29 @@ StackFrame get_native_frame(uintptr_t ip) JL_NOTSAFEPOINT {
 }
 
 string entry_to_string(jl_bt_element_t *entry) {
+    ios_t str;
+    ios_mem(&str, 10024);
+        
     if (jl_bt_is_native(entry)) {
         auto frame = get_native_frame(entry[0].uintptr);
-        return "<native>"; // XXX
+        ios_printf(
+            &str, "%s at %s:%d;",
+            frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
+        );
     } else {
         auto frames = get_julia_frames(entry);
-        return "<julia>"; // XXX
+        for (auto frame : frames) {
+            ios_printf(
+                &str, "%s at %s:%d;",
+                frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
+            );
+        }    
     }
+
+    string ret = string((const char*)str.buf, str.size);
+    ios_close(&str);
+
+    return ret;
 }
 
 // TODO: pass size as well

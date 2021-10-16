@@ -24,14 +24,14 @@ struct RawFrame {
     size_t size;
 };
 
-struct StackTrieNode {
-    // keys: raw bt element
-    unordered_map<RawFrame, StackTrieNode*> children;
-    unordered_map<size_t, size_t> allocs_by_type_address;
+struct CallGraphNode {
+    unordered_map<RawFrame, size_t> out_edges; // value: # calls to that edge
+    unordered_map<size_t, size_t> allocs_by_type_address; // allocations from this node
 };
 
 struct AllocProfile {
-    StackTrieNode root;
+    unordered_map<RawFrame, CallGraphNode*> nodes;
+
     unordered_map<size_t, string> type_name_by_address;
 };
 

@@ -19,12 +19,13 @@ struct StackFrame {
     intptr_t line_no;
 };
 
-struct Alloc {
-    size_t type_address;
-    vector<StackFrame> stack;
+struct RawFrame {
+    jl_bt_element_t *data;
+    size_t size;
 };
 
 struct StackTrieNode {
+    // keys: raw bt element
     unordered_map<string, StackTrieNode*> children;
     unordered_map<size_t, size_t> allocs_by_type_address;
 };
@@ -139,7 +140,7 @@ string entry_to_string(jl_bt_element_t *entry) {
 }
 
 // TODO: pass size as well
-void trie_insert(StackTrieNode *node, vector<jl_bt_element_t*> path, size_t idx, size_t type_address) {
+void trie_insert(StackTrieNode *node, vector<string> path, size_t idx, size_t type_address) {
     if (idx == path.size()) {
         auto allocs = node->allocs_by_type_address.find(type_address);
         if (allocs == node->allocs_by_type_address.end()) {
@@ -150,8 +151,8 @@ void trie_insert(StackTrieNode *node, vector<jl_bt_element_t*> path, size_t idx,
         return;
     }
     
-    auto entry = path[idx];
-    string child_str = entry_to_string(entry);
+    auto child_str = path[idx];
+    
     auto child = node->children.find(child_str);
     StackTrieNode *child_node;
     if (child == node->children.end()) {
@@ -169,12 +170,26 @@ void trie_insert(StackTrieNode *node, vector<jl_bt_element_t*> path, size_t idx,
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
 void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address) {
-    vector<jl_bt_element_t*> stack_vec;
+    vector<string> stack_vec;
 
-    for (int i = 0; i < stack.size; i += jl_bt_entry_size(stack.data + i)) {
-        jl_bt_element_t *bt_entry = stack.data + i;
+    int i = 0;
+    while (i < stack.size) {
+        jl_bt_element_t *entry = stack.data + i;
+        auto entry_size = jl_bt_entry_size(entry);
 
-        stack_vec.push_back(bt_entry);
+        auto raw_frame = RawFrame{
+            entry,
+            entry_size
+        };
+        auto other_str = entry_to_string(entry);
+        auto reconstructed_str = entry_to_string(raw_frame.data);
+        if (other_str != reconstructed_str) {
+            jl_printf(JL_STDERR, "normal: %s; reconstructed: %s\n", other_str.c_str(), reconstructed_str.c_str());
+        }
+
+        stack_vec.push_back(other_str);
+
+        i += entry_size;
     }
 
     trie_insert(&profile->root, stack_vec, 0, type_address);
@@ -288,7 +303,7 @@ void _record_allocated_value(jl_value_t *val) {
     record_alloc(g_alloc_profile, stack, (size_t)type);
 
     // TODO: more idiomatic way to destruct this
-    free(stack.data);
+    // free(stack.data);
 }
 
 void _report_gc_started() {

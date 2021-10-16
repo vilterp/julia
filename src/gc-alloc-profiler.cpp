@@ -13,6 +13,12 @@ using std::unordered_map;
 using std::string;
 using std::vector;
 
+struct StackFrame {
+    string func_name;
+    string file_name;
+    intptr_t line;
+};
+
 struct StackTrieNode {
     jl_bt_element_t frame;
     size_t id;
@@ -30,8 +36,14 @@ struct AllocProfile {
 //
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
-void stack_trie_insert_alloc(StackTrieNode *trie, vector<jl_bt_element_t> stack, size_t type_id) {
-    jl_printf(JL_STDERR, "TODO: insert stack\n");
+void stack_trie_insert_alloc(StackTrieNode *trie, vector<StackFrame> stack, size_t type_id) {
+    jl_printf(JL_STDOUT, "stack_trie_insert_alloc(type_id: %zu) ======\n", type_id);
+    for (auto frame : stack) {
+        jl_printf(
+            JL_STDOUT, "  %s at %s:%d\n",
+            frame.func_name.c_str(), frame.file_name.c_str(), frame.line
+        );
+    }
 }
 
 void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
@@ -131,20 +143,60 @@ void register_type_string(jl_datatype_t *type) {
     g_alloc_profile->type_name_by_address[(size_t)type] = type_str;
 }
 
-vector<jl_bt_element_t> get_stack() {
+vector<StackFrame> get_stack() {
     // TODO: don't allocate this every time
     jl_bt_element_t *bt_data = (jl_bt_element_t*) malloc(JL_MAX_BT_SIZE);
 
     // TODO: tune the number of frames that are skipped
-    size_t num_frames = rec_backtrace(bt_data, JL_MAX_BT_SIZE, 1);
+    size_t bt_size = rec_backtrace(bt_data, JL_MAX_BT_SIZE, 1);
 
-    jl_printf(JL_STDERR, "==============");
+    vector<StackFrame> stack;
 
-    // TODO: maybe just return the raw buffer
-    vector<jl_bt_element_t> stack;
-    for (size_t i = 0; i < num_frames; i++) {
-        jl_print_bt_entry_codeloc(&bt_data[i]);
-        stack.push_back(bt_data[i]);
+    for (int i = 0; i < bt_size; i += jl_bt_entry_size(bt_data + i)) {
+        jl_bt_element_t *bt_entry = bt_data + i;
+        if (jl_bt_is_native(bt_entry)) {
+            continue;
+        }
+
+        // adapted from jl_print_bt_entry_codeloc
+        size_t ip = jl_bt_entry_header(bt_entry);
+        jl_value_t *code = jl_bt_entry_jlvalue(bt_entry, 0);
+        if (jl_is_method_instance(code)) {
+            // When interpreting a method instance, need to unwrap to find the code info
+            code = ((jl_method_instance_t*)code)->uninferred;
+        }
+        if (jl_is_code_info(code)) {
+            jl_code_info_t *src = (jl_code_info_t*)code;
+            // See also the debug info handling in codegen.cpp.
+            // NB: debuginfoloc is 1-based!
+            intptr_t debuginfoloc = ((int32_t*)jl_array_data(src->codelocs))[ip];
+            while (debuginfoloc != 0) {
+                jl_line_info_node_t *locinfo = (jl_line_info_node_t*)
+                    jl_array_ptr_ref(src->linetable, debuginfoloc - 1);
+                assert(jl_typeis(locinfo, jl_lineinfonode_type));
+                const char *func_name = "Unknown";
+                jl_value_t *method = locinfo->method;
+                if (jl_is_method_instance(method))
+                    method = ((jl_method_instance_t*)method)->def.value;
+                if (jl_is_method(method))
+                    method = (jl_value_t*)((jl_method_t*)method)->name;
+                if (jl_is_symbol(method))
+                    func_name = jl_symbol_name((jl_sym_t*)method);
+
+                stack.push_back(StackFrame{
+                    func_name,
+                    jl_symbol_name(locinfo->file),
+                    locinfo->line,
+                });
+                
+                debuginfoloc = locinfo->inlined_at;
+            }
+        }
+        else {
+            // If we're using this function something bad has already happened;
+            // be a bit defensive to avoid crashing while reporting the crash.
+            jl_safe_printf("No code info - unknown interpreter state!\n");
+        }
     }
 
     return stack;

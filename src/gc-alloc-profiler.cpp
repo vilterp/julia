@@ -126,6 +126,38 @@ void register_type_string(jl_datatype_t *type) {
     g_alloc_profile->type_name_by_address[(size_t)type] = type_str;
 }
 
+// Print function, file and line containing native instruction pointer `ip` by
+// looking up debug info. Prints multiple such frames when `ip` points to
+// inlined code.
+StackFrame get_native_frame(uintptr_t ip) JL_NOTSAFEPOINT {
+    StackFrame out_frame;
+
+    // This function is not allowed to reference any TLS variables since
+    // it can be called from an unmanaged thread on OSX.
+    // it means calling getFunctionInfo with noInline = 1
+    jl_frame_t *frames = NULL;
+    int n = jl_getFunctionInfo(&frames, ip, 0, 0);
+    int i;
+
+    for (i = 0; i < n; i++) {
+        jl_frame_t frame = frames[i];
+        if (!frame.func_name) {
+            jl_safe_printf("unknown function (ip: %p)\n", (void*)ip);
+        }
+        else {
+            out_frame.func_name = frame.func_name;
+            out_frame.file_name = frame.file_name;
+            out_frame.line_no = frame.line;
+
+            free(frame.func_name);
+            free(frame.file_name);
+        }
+    }
+    free(frames);
+
+    return out_frame;
+}
+
 vector<StackFrame> get_stack() {
     // TODO: don't allocate this every time
     jl_bt_element_t *bt_data = (jl_bt_element_t*) malloc(JL_MAX_BT_SIZE);
@@ -137,7 +169,11 @@ vector<StackFrame> get_stack() {
 
     for (int i = 0; i < bt_size; i += jl_bt_entry_size(bt_data + i)) {
         jl_bt_element_t *bt_entry = bt_data + i;
+
+        // jl_print_bt_entry_codeloc(bt_entry);
+
         if (jl_bt_is_native(bt_entry)) {
+            stack.push_back(get_native_frame(bt_entry[0].uintptr));
             continue;
         }
 
@@ -210,5 +246,9 @@ void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd) {
         pause/1e6, freed/1e6, allocd
     );
 
-    alloc_profile_serialize(g_alloc_profile_out, g_alloc_profile);
+    if (g_alloc_profile_out != nullptr) {
+        alloc_profile_serialize(g_alloc_profile_out, g_alloc_profile);
+        ios_flush(g_alloc_profile_out);
+        g_alloc_profile->allocs.clear();
+    }
 }

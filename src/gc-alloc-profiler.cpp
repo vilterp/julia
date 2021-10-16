@@ -180,8 +180,23 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
     trie_insert(&profile->root, stack_vec, 0, type_address);
 }
 
+void print_indent(ios_t *out, int level) {
+    for (int i=0; i < level; i++) {
+        ios_printf(out, "  ");
+    }
+}
+
+void trie_serialize(ios_t *out, AllocProfile *profile, StackTrieNode *node, int level) {
+    for (auto child : node->children) {
+        print_indent(out, level);
+        ios_printf(out, "%s\n", child.first.c_str());
+        // TODO: print the types as well
+        trie_serialize(out, profile, child.second, level+1);
+    }
+}
+
 void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
-    ios_printf(out, "TODO: serialize trie\n");
+    trie_serialize(out, profile, &profile->root, 0);
 }
 
 // == global variables manipulated by callbacks ==

@@ -25,9 +25,7 @@ struct Alloc {
 };
 
 struct StackTrieNode {
-    jl_bt_element_t frame;
-    size_t id;
-    vector<StackTrieNode> children;
+    unordered_map<string, StackTrieNode*> children;
     unordered_map<size_t, size_t> allocs_by_type_address;
 };
 
@@ -40,6 +38,114 @@ struct RawBacktrace {
     jl_bt_element_t *data;
     size_t size;
 };
+
+vector<StackFrame> get_julia_frames(jl_bt_element_t *bt_entry) {
+    vector<StackFrame> ret;
+
+    size_t ip = jl_bt_entry_header(bt_entry);
+    jl_value_t *code = jl_bt_entry_jlvalue(bt_entry, 0);
+    if (jl_is_method_instance(code)) {
+        // When interpreting a method instance, need to unwrap to find the code info
+        code = ((jl_method_instance_t*)code)->uninferred;
+    }
+    if (jl_is_code_info(code)) {
+        jl_code_info_t *src = (jl_code_info_t*)code;
+        // See also the debug info handling in codegen.cpp.
+        // NB: debuginfoloc is 1-based!
+        intptr_t debuginfoloc = ((int32_t*)jl_array_data(src->codelocs))[ip];
+        while (debuginfoloc != 0) {
+            jl_line_info_node_t *locinfo = (jl_line_info_node_t*)
+                jl_array_ptr_ref(src->linetable, debuginfoloc - 1);
+            assert(jl_typeis(locinfo, jl_lineinfonode_type));
+            const char *func_name = "Unknown";
+            jl_value_t *method = locinfo->method;
+            if (jl_is_method_instance(method))
+                method = ((jl_method_instance_t*)method)->def.value;
+            if (jl_is_method(method))
+                method = (jl_value_t*)((jl_method_t*)method)->name;
+            if (jl_is_symbol(method))
+                func_name = jl_symbol_name((jl_sym_t*)method);
+
+            ret.push_back(StackFrame{
+                func_name,
+                jl_symbol_name(locinfo->file),
+                locinfo->line,
+            });
+            
+            debuginfoloc = locinfo->inlined_at;
+        }
+    }
+    else {
+        // If we're using this function something bad has already happened;
+        // be a bit defensive to avoid crashing while reporting the crash.
+        jl_safe_printf("No code info - unknown interpreter state!\n");
+    }
+    return ret;
+}
+
+StackFrame get_native_frame(uintptr_t ip) JL_NOTSAFEPOINT {
+    StackFrame out_frame;
+
+    // This function is not allowed to reference any TLS variables since
+    // it can be called from an unmanaged thread on OSX.
+    // it means calling getFunctionInfo with noInline = 1
+    jl_frame_t *frames = NULL;
+    int n = jl_getFunctionInfo(&frames, ip, 0, 0);
+    int i;
+
+    for (i = 0; i < n; i++) {
+        jl_frame_t frame = frames[i];
+        if (!frame.func_name) {
+            jl_safe_printf("unknown function (ip: %p)\n", (void*)ip);
+        }
+        else {
+            out_frame.func_name = frame.func_name;
+            out_frame.file_name = frame.file_name;
+            out_frame.line_no = frame.line;
+
+            free(frame.func_name);
+            free(frame.file_name);
+        }
+    }
+    free(frames);
+
+    return out_frame;
+}
+
+string entry_to_string(jl_bt_element_t *entry) {
+    if (jl_bt_is_native(entry)) {
+        auto frame = get_native_frame(entry[0].uintptr);
+        return "<native>"; // XXX
+    } else {
+        auto frames = get_julia_frames(entry);
+        return "<julia>"; // XXX
+    }
+}
+
+// TODO: pass size as well
+void trie_insert(StackTrieNode *node, vector<jl_bt_element_t*> path, size_t idx, size_t type_address) {
+    if (idx == path.size()) {
+        auto allocs = node->allocs_by_type_address.find(type_address);
+        if (allocs == node->allocs_by_type_address.end()) {
+            node->allocs_by_type_address[type_address] = 1;
+        } else {
+            node->allocs_by_type_address[type_address]++;
+        }
+        return;
+    }
+    
+    auto entry = path[idx];
+    string child_str = entry_to_string(entry);
+    auto child = node->children.find(child_str);
+    StackTrieNode *child_node;
+    if (child == node->children.end()) {
+        child_node = new StackTrieNode();
+        node->children[child_str] = child_node;
+    } else {
+        child_node = child->second;
+    }
+    trie_insert(child_node, path, idx+1, type_address);
+}
 
 // Insert a record into the trie indicating that we allocated the
 // given type at the given stack.
@@ -54,6 +160,8 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
 
         stack_vec.push_back(bt_entry);
     }
+
+    trie_insert(&profile->root, stack_vec, 0, type_address);
 }
 
 void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
@@ -119,38 +227,6 @@ void register_type_string(jl_datatype_t *type) {
 
     string type_str = _type_as_string(type);
     g_alloc_profile->type_name_by_address[(size_t)type] = type_str;
-}
-
-// Print function, file and line containing native instruction pointer `ip` by
-// looking up debug info. Prints multiple such frames when `ip` points to
-// inlined code.
-StackFrame get_native_frame(uintptr_t ip) JL_NOTSAFEPOINT {
-    StackFrame out_frame;
-
-    // This function is not allowed to reference any TLS variables since
-    // it can be called from an unmanaged thread on OSX.
-    // it means calling getFunctionInfo with noInline = 1
-    jl_frame_t *frames = NULL;
-    int n = jl_getFunctionInfo(&frames, ip, 0, 0);
-    int i;
-
-    for (i = 0; i < n; i++) {
-        jl_frame_t frame = frames[i];
-        if (!frame.func_name) {
-            jl_safe_printf("unknown function (ip: %p)\n", (void*)ip);
-        }
-        else {
-            out_frame.func_name = frame.func_name;
-            out_frame.file_name = frame.file_name;
-            out_frame.line_no = frame.line;
-
-            free(frame.func_name);
-            free(frame.file_name);
-        }
-    }
-    free(frames);
-
-    return out_frame;
 }
 
 RawBacktrace get_stack() {

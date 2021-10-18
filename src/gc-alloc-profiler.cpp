@@ -35,6 +35,49 @@ struct RawBacktrace {
     size_t size;
 };
 
+// == utility functions ==
+
+void print_str_escape_csv(ios_t *stream, const string &s) {
+    ios_printf(stream, "\"");
+    for (auto c = s.cbegin(); c != s.cend(); c++) {
+        switch (*c) {
+        case '"': ios_printf(stream, "\"\""); break;
+        default:
+            ios_printf(stream, "%c", *c);
+        }
+    }
+    ios_printf(stream, "\"");
+}
+
+string _type_as_string(jl_datatype_t *type) {
+    if ((uintptr_t)type < 4096U) {
+        return "<corrupt>";
+    } else if (type == (jl_datatype_t*)jl_buff_tag) {
+        return "<buffer>";
+    } else if (type == (jl_datatype_t*)jl_malloc_tag) {
+        return "<malloc>";
+    } else if (type == jl_string_type) {
+        return "<string>";
+    } else if (type == jl_symbol_type) {
+        return "<symbol>";
+    } else if (jl_is_datatype(type)) {
+        ios_t str_;
+        ios_mem(&str_, 10024);
+        JL_STREAM* str = (JL_STREAM*)&str_;
+
+        jl_static_show(str, (jl_value_t*)type);
+
+        string type_str = string((const char*)str_.buf, str_.size);
+        ios_close(&str_);
+
+        return type_str;
+    } else {
+        return "<missing>";
+    }
+}
+
+// === stack trace stuff ===
+
 vector<StackFrame> get_julia_frames(jl_bt_element_t *bt_entry) {
     vector<StackFrame> ret;
 
@@ -134,6 +177,8 @@ string entry_to_string(jl_bt_element_t *entry) {
     return ret;
 }
 
+// === call graph manipulation ===
+
 CallGraphNode *get_or_insert_node(AllocProfile *profile, string frame_label) {
     auto node = profile->nodes.find(frame_label);
     if (node != profile->nodes.end()) {
@@ -195,56 +240,36 @@ void print_indent(ios_t *out, int level) {
 }
 
 void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
+    ios_printf(out, "digraph {\n");
     for (auto node : profile->nodes) {
         for (auto out_edge : node.second->calls_out) {
+            // ios_printf(
+            //     out, "%s,%s,%d\n",
+            //     node.first.c_str(), out_edge.first.c_str(), out_edge.second
+            // );
             ios_printf(
-                out, "%s,%s,%d\n",
+                out, "  \"%s\" -> \"%s\" [label=%d];\n",
                 node.first.c_str(), out_edge.first.c_str(), out_edge.second
             );
         }
         for (auto alloc_count : node.second->allocs_by_type_address) {
             auto type_name = profile->type_name_by_address[alloc_count.first];
+            // ios_printf(out, "%s,", node.first.c_str());
+            // print_str_escape_csv(out, type_name.c_str());
+            // ios_printf(out, "%d\n", alloc_count.second);
             ios_printf(
-                out, "%s,TYPE %s,%d\n",
+                out, "  \"%s\" -> \"TYPE %s\" [label=%d];\n",
                 node.first.c_str(), type_name.c_str(), alloc_count.second
             );
         }
     }
+    ios_printf(out, "}");
 }
 
 // == global variables manipulated by callbacks ==
 
 AllocProfile *g_alloc_profile;
 ios_t *g_alloc_profile_out;
-
-// == utility functions ==
-
-string _type_as_string(jl_datatype_t *type) {
-    if ((uintptr_t)type < 4096U) {
-        return "<corrupt>";
-    } else if (type == (jl_datatype_t*)jl_buff_tag) {
-        return "<buffer>";
-    } else if (type == (jl_datatype_t*)jl_malloc_tag) {
-        return "<malloc>";
-    } else if (type == jl_string_type) {
-        return "<string>";
-    } else if (type == jl_symbol_type) {
-        return "<symbol>";
-    } else if (jl_is_datatype(type)) {
-        ios_t str_;
-        ios_mem(&str_, 10024);
-        JL_STREAM* str = (JL_STREAM*)&str_;
-
-        jl_static_show(str, (jl_value_t*)type);
-
-        string type_str = string((const char*)str_.buf, str_.size);
-        ios_close(&str_);
-
-        return type_str;
-    } else {
-        return "<missing>";
-    }
-}
 
 // == exported interface ==
 

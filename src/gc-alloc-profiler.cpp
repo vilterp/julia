@@ -19,18 +19,13 @@ struct StackFrame {
     intptr_t line_no;
 };
 
-struct RawFrame {
-    jl_bt_element_t *data;
-    size_t size;
-};
-
 struct CallGraphNode {
-    unordered_map<RawFrame, size_t> out_edges; // value: # calls to that edge
+    unordered_map<string, size_t> calls_out; // value: # calls to that edge
     unordered_map<size_t, size_t> allocs_by_type_address; // allocations from this node
 };
 
 struct AllocProfile {
-    unordered_map<RawFrame, CallGraphNode*> nodes;
+    unordered_map<string, CallGraphNode*> nodes;
 
     unordered_map<size_t, string> type_name_by_address;
 };
@@ -139,29 +134,32 @@ string entry_to_string(jl_bt_element_t *entry) {
     return ret;
 }
 
-// TODO: pass size as well
-void trie_insert(StackTrieNode *node, vector<RawFrame> path, size_t idx, size_t type_address) {
-    if (idx == path.size()) {
-        auto allocs = node->allocs_by_type_address.find(type_address);
-        if (allocs == node->allocs_by_type_address.end()) {
-            node->allocs_by_type_address[type_address] = 1;
-        } else {
-            node->allocs_by_type_address[type_address]++;
-        }
-        return;
+CallGraphNode *get_or_insert_node(AllocProfile *profile, string frame_label) {
+    auto node = profile->nodes.find(frame_label);
+    if (node != profile->nodes.end()) {
+        return node->second;
     }
-    
-    auto child_str = path[idx];
-    
-    auto child = node->children.find(child_str);
-    StackTrieNode *child_node;
-    if (child == node->children.end()) {
-        child_node = new StackTrieNode();
-        node->children[child_str] = child_node;
+    auto new_node = new CallGraphNode{};
+    profile->nodes[frame_label] = new_node;
+    return new_node;
+}
+
+void incr_or_add_alloc(CallGraphNode *node, size_t type_address) {
+    auto count = node->allocs_by_type_address.find(type_address);
+    if (count == node->allocs_by_type_address.end()) {
+        node->allocs_by_type_address[type_address] = 1;
     } else {
-        child_node = child->second;
+        node->allocs_by_type_address[type_address]++;
     }
-    trie_insert(child_node, path, idx+1, type_address);
+}
+
+void add_call_edge(CallGraphNode *from_node, string to_node) {
+    auto calls_out = from_node->calls_out.find(to_node);
+    if (calls_out == from_node->calls_out.end()) {
+        from_node->calls_out[to_node] = 1;
+    } else {
+        from_node->calls_out[to_node]++;
+    }
 }
 
 // Insert a record into the trie indicating that we allocated the
@@ -170,23 +168,24 @@ void trie_insert(StackTrieNode *node, vector<RawFrame> path, size_t idx, size_t 
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
 void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address) {
-    vector<RawFrame> stack_vec;
-
+    string prev_frame_label = "";
     int i = 0;
     while (i < stack.size) {
         jl_bt_element_t *entry = stack.data + i;
         auto entry_size = jl_bt_entry_size(entry);
 
-        auto raw_frame = RawFrame{
-            entry,
-            entry_size
-        };
+        auto frame_label = entry_to_string(entry);
+        auto cur_node = get_or_insert_node(profile, frame_label);
 
-        stack_vec.push_back(raw_frame);
+        if (prev_frame_label == "") {
+            incr_or_add_alloc(cur_node, type_address);
+        } else {
+            add_call_edge(cur_node, prev_frame_label);
+        }
+        prev_frame_label = frame_label;
+
         i += entry_size;
     }
-
-    trie_insert(&profile->root, stack_vec, 0, type_address);
 }
 
 void print_indent(ios_t *out, int level) {
@@ -195,22 +194,22 @@ void print_indent(ios_t *out, int level) {
     }
 }
 
-void trie_serialize(ios_t *out, AllocProfile *profile, StackTrieNode *node, int level) {
-    for (auto child : node->children) {
-        print_indent(out, level);
-        ios_printf(out, "%s: ", child.first.c_str());
-        for (auto alloc_count : child.second->allocs_by_type_address) {
-            auto type_str = profile->type_name_by_address[alloc_count.first];
-            ios_printf(out, "%s: %d, ", type_str.c_str(), alloc_count.second);
-        }
-        ios_printf(out, "\n");
-        // TODO: print the types as well
-        trie_serialize(out, profile, child.second, level+1);
-    }
-}
-
 void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
-    trie_serialize(out, profile, &profile->root, 0);
+    for (auto node : profile->nodes) {
+        for (auto out_edge : node.second->calls_out) {
+            ios_printf(
+                out, "%s,%s,%d\n",
+                node.first.c_str(), out_edge.first.c_str(), out_edge.second
+            );
+        }
+        for (auto alloc_count : node.second->allocs_by_type_address) {
+            auto type_name = profile->type_name_by_address[alloc_count.first];
+            ios_printf(
+                out, "%s,TYPE %s,%d\n",
+                node.first.c_str(), type_name.c_str(), alloc_count.second
+            );
+        }
+    }
 }
 
 // == global variables manipulated by callbacks ==

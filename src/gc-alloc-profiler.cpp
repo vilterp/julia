@@ -26,7 +26,6 @@ struct CallGraphNode {
 
 struct AllocProfile {
     unordered_map<string, CallGraphNode*> nodes;
-
     unordered_map<size_t, string> type_name_by_address;
 };
 
@@ -240,7 +239,15 @@ void print_indent(ios_t *out, int level) {
 }
 
 void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
+    jl_printf(JL_STDERR, "serialize start\n");
+
     ios_printf(out, "digraph {\n");
+    for (auto node : profile ->nodes) {
+        ios_printf(out, "  \"%s\" [shape=box];\n", node.first.c_str());
+    }
+    for (auto type : profile->type_name_by_address) {
+        ios_printf(out, "  \"%s\" [fillcolor=green, shape=box, style=filled];\n", type.second.c_str());
+    }
     for (auto node : profile->nodes) {
         for (auto out_edge : node.second->calls_out) {
             // ios_printf(
@@ -258,7 +265,7 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
             // print_str_escape_csv(out, type_name.c_str());
             // ios_printf(out, "%d\n", alloc_count.second);
             ios_printf(
-                out, "  \"%s\" -> \"TYPE %s\" [label=%d];\n",
+                out, "  \"%s\" -> \"%s\" [label=%d];\n",
                 node.first.c_str(), type_name.c_str(), alloc_count.second
             );
         }

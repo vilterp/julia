@@ -28,6 +28,7 @@ struct CallGraphNode {
 struct AllocProfile {
     unordered_map<string, CallGraphNode*> nodes;
     unordered_map<size_t, string> type_name_by_address;
+    unordered_map<size_t, size_t> unknown_function_calls; // num calls by function address
 };
 
 struct RawBacktrace {
@@ -135,7 +136,8 @@ StackFrame get_native_frame(uintptr_t ip) JL_NOTSAFEPOINT {
     for (i = 0; i < n; i++) {
         jl_frame_t frame = frames[i];
         if (!frame.func_name) {
-            jl_safe_printf("unknown function (ip: %p)\n", (void*)ip);
+            // TODO: record these somewhere
+            // jl_safe_printf("unknown function (ip: %p)\n", (void*)ip);
         }
         else {
             out_frame.func_name = frame.func_name;

@@ -20,6 +20,7 @@ struct StackFrame {
 };
 
 struct CallGraphNode {
+    bool is_native;
     unordered_map<string, size_t> calls_out; // value: # calls to that edge
     unordered_map<size_t, size_t> allocs_by_type_address; // allocations from this node
 };
@@ -157,15 +158,19 @@ string entry_to_string(jl_bt_element_t *entry) {
     if (jl_bt_is_native(entry)) {
         auto frame = get_native_frame(entry[0].uintptr);
         ios_printf(
-            &str, "%s at %s:%d",
-            frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
+            // &str, "%s at %s:%d",
+            // frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
+            &str, "%s",
+            frame.func_name.c_str()
         );
     } else {
         auto frames = get_julia_frames(entry);
         for (auto frame : frames) {
             ios_printf(
-                &str, "%s at %s:%d",
-                frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
+                // &str, "%s at %s:%d",
+                // frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
+                &str, "%s",
+                frame.func_name.c_str()
             );
         }    
     }
@@ -178,12 +183,14 @@ string entry_to_string(jl_bt_element_t *entry) {
 
 // === call graph manipulation ===
 
-CallGraphNode *get_or_insert_node(AllocProfile *profile, string frame_label) {
+CallGraphNode *get_or_insert_node(
+    AllocProfile *profile, string frame_label, bool is_native
+) {
     auto node = profile->nodes.find(frame_label);
     if (node != profile->nodes.end()) {
         return node->second;
     }
-    auto new_node = new CallGraphNode{};
+    auto new_node = new CallGraphNode{is_native};
     profile->nodes[frame_label] = new_node;
     return new_node;
 }
@@ -217,9 +224,10 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
     while (i < stack.size) {
         jl_bt_element_t *entry = stack.data + i;
         auto entry_size = jl_bt_entry_size(entry);
+        auto is_native = jl_bt_is_native(entry);
 
         auto frame_label = entry_to_string(entry);
-        auto cur_node = get_or_insert_node(profile, frame_label);
+        auto cur_node = get_or_insert_node(profile, frame_label, is_native);
 
         if (prev_frame_label == "") {
             incr_or_add_alloc(cur_node, type_address);
@@ -242,11 +250,18 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
     jl_printf(JL_STDERR, "serialize start\n");
 
     ios_printf(out, "digraph {\n");
-    for (auto node : profile ->nodes) {
-        ios_printf(out, "  \"%s\" [shape=box];\n", node.first.c_str());
+    for (auto node : profile->nodes) {
+        auto color = node.second->is_native ? "darksalmon" : "thistle";
+        ios_printf(
+            out, "  \"%s\" [shape=box, fillcolor=%s, style=filled];\n",
+            node.first.c_str(), color
+        );
     }
     for (auto type : profile->type_name_by_address) {
-        ios_printf(out, "  \"%s\" [fillcolor=green, shape=box, style=filled];\n", type.second.c_str());
+        ios_printf(
+            out, "  \"%s\" [fillcolor=darkseagreen1, shape=box, style=filled];\n",
+            type.second.c_str()
+        );
     }
     for (auto node : profile->nodes) {
         for (auto out_edge : node.second->calls_out) {
@@ -286,6 +301,9 @@ JL_DLLEXPORT void jl_start_alloc_profile(ios_t *stream) {
 }
 
 JL_DLLEXPORT void jl_stop_alloc_profile() {
+    alloc_profile_serialize(g_alloc_profile_out, g_alloc_profile);
+    ios_flush(g_alloc_profile_out);
+
     g_alloc_profile_out = nullptr;
     
     // TODO: something to free the alloc profile?
@@ -343,9 +361,4 @@ void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd) {
         "GC: pause %fms. collected %fMB. %lld allocs total\n",
         pause/1e6, freed/1e6, allocd
     );
-
-    if (g_alloc_profile_out != nullptr) {
-        alloc_profile_serialize(g_alloc_profile_out, g_alloc_profile);
-        ios_flush(g_alloc_profile_out);
-    }
 }

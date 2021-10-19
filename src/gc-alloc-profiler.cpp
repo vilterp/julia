@@ -248,7 +248,11 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
     while (i < stack.size) {
         jl_bt_element_t *entry = stack.data + i;
         auto entry_size = jl_bt_entry_size(entry);
+        i += entry_size;
         auto is_native = jl_bt_is_native(entry);
+        if (is_native) {
+            continue; // ...
+        }
 
         auto frame_label = entry_to_string(entry);
         auto cur_node = get_or_insert_node(profile, frame_label, is_native);
@@ -259,8 +263,6 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
             add_call_edge(cur_node, prev_frame_label);
         }
         prev_frame_label = frame_label;
-
-        i += entry_size;
     }
 }
 

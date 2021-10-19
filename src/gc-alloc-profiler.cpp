@@ -148,8 +148,8 @@ vector<StackFrame> get_julia_frames(jl_bt_element_t *bt_entry) {
     return ret;
 }
 
-StackFrame get_native_frame(uintptr_t ip) JL_NOTSAFEPOINT {
-    StackFrame out_frame;
+vector<StackFrame> get_native_frames(uintptr_t ip) JL_NOTSAFEPOINT {
+    vector<StackFrame> out_frames;
 
     // This function is not allowed to reference any TLS variables since
     // it can be called from an unmanaged thread on OSX.
@@ -165,9 +165,11 @@ StackFrame get_native_frame(uintptr_t ip) JL_NOTSAFEPOINT {
             // jl_safe_printf("unknown function (ip: %p)\n", (void*)ip);
         }
         else {
-            out_frame.func_name = frame.func_name;
-            out_frame.file_name = frame.file_name;
-            out_frame.line_no = frame.line;
+            out_frames.push_back(StackFrame{
+                frame.func_name,
+                frame.file_name,
+                frame.line
+            });
 
             free(frame.func_name);
             free(frame.file_name);
@@ -175,31 +177,29 @@ StackFrame get_native_frame(uintptr_t ip) JL_NOTSAFEPOINT {
     }
     free(frames);
 
-    return out_frame;
+    return out_frames;
 }
 
 string entry_to_string(jl_bt_element_t *entry) {
     ios_t str;
     ios_mem(&str, 10024);
         
-    if (jl_bt_is_native(entry)) {
-        auto frame = get_native_frame(entry[0].uintptr);
+    auto frames = jl_bt_is_native(entry)
+        ? get_native_frames(entry[0].uintptr)
+        : get_julia_frames(entry);
+    
+    bool first = true;
+    for (auto frame : frames) {
+        if (!first) {
+            ios_printf(&str, "\n");
+        }
         ios_printf(
             // &str, "%s at %s:%d",
             // frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
             &str, "%s",
             frame.func_name.c_str()
         );
-    } else {
-        auto frames = get_julia_frames(entry);
-        for (auto frame : frames) {
-            ios_printf(
-                // &str, "%s at %s:%d",
-                // frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
-                &str, "%s",
-                frame.func_name.c_str()
-            );
-        }    
+        first = false;
     }
 
     string ret = string((const char*)str.buf, str.size);

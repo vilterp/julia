@@ -50,8 +50,7 @@ function finalizer(@nospecialize(f), @nospecialize(o))
     return o
 end
 
-function finalizer(f::Ptr{Cvoid}, o::T) where T
-    @inline
+function finalizer(f::Ptr{Cvoid}, o::T) where T @inline
     if !ismutable(o)
         error("objects of type ", typeof(o), " cannot be finalized")
     end
@@ -107,16 +106,6 @@ Control whether garbage collection is enabled using a boolean argument (`true` f
 enable(on::Bool) = ccall(:jl_gc_enable, Int32, (Int32,), on) != 0
 
 """
-    GC.enable_finalizers(on::Bool)
-
-Increment or decrement the counter that controls the running of finalizers on
-the current Task. Finalizers will only run when the counter is at zero. (Set
-`true` for enabling, `false` for disabling). They may still run concurrently on
-another Task or thread.
-"""
-enable_finalizers(on::Bool) = on ? enable_finalizers() : disable_finalizers()
-
-"""
     GC.take_heap_snapshot(io::IOStream)
 
 Write a snapshot of the heap, in the JSON format expected by the Chrome
@@ -127,16 +116,24 @@ function take_heap_snapshot(io)
     ccall(:jl_gc_take_heap_snapshot, Cvoid, (Ptr{Cvoid},), (io::IOStream).handle::Ptr{Cvoid})
 end
 
-function enable_finalizers()
-    Base.@inline
+"""
+    GC.enable_finalizers(on::Bool)
+
+Increment or decrement the counter that controls the running of finalizers on
+the current Task. Finalizers will only run when the counter is at zero. (Set
+`true` for enabling, `false` for disabling). They may still run concurrently on
+another Task or thread.
+"""
+enable_finalizers(on::Bool) = on ? enable_finalizers() : disable_finalizers()
+
+function enable_finalizers() @inline
     ccall(:jl_gc_enable_finalizers_internal, Cvoid, ())
-    if unsafe_load(cglobal(:jl_gc_have_pending_finalizers, Cint)) != 0
+    if Core.Intrinsics.atomic_pointerref(cglobal(:jl_gc_have_pending_finalizers, Cint), :monotonic) != 0
         ccall(:jl_gc_run_pending_finalizers, Cvoid, (Ptr{Cvoid},), C_NULL)
     end
 end
 
-function disable_finalizers()
-    Base.@inline
+function disable_finalizers() @inline
     ccall(:jl_gc_disable_finalizers_internal, Cvoid, ())
 end
 

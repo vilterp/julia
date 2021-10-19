@@ -21,12 +21,12 @@ struct StackFrame {
 
 struct CallGraphNode {
     bool is_native;
-    unordered_map<string, size_t> calls_out; // value: # calls to that edge
+    unordered_map<jl_code_info_t*, size_t> calls_out; // value: # calls to that edge
     unordered_map<size_t, size_t> allocs_by_type_address; // allocations from this node
 };
 
 struct AllocProfile {
-    unordered_map<string, CallGraphNode*> nodes;
+    unordered_map<jl_code_info_t*, CallGraphNode*> nodes;
     unordered_map<size_t, string> type_name_by_address;
 };
 
@@ -99,6 +99,20 @@ string _type_as_string(jl_datatype_t *type) {
 }
 
 // === stack trace stuff ===
+
+jl_code_info_t *get_code_info(jl_bt_element_t *bt_entry) {
+    jl_value_t *code = jl_bt_entry_jlvalue(bt_entry, 0);
+    if (jl_is_method_instance(code)) {
+        // When interpreting a method instance, need to unwrap to find the code info
+        code = ((jl_method_instance_t*)code)->uninferred;
+    }
+    if (!jl_is_code_info(code)) {
+        jl_printf(JL_STDERR, "unknown function");
+        return nullptr;
+    }
+    // TODO: handle inlining
+    return (jl_code_info_t*)code;
+}
 
 // copy pasted from stackwalk.c (I think)
 vector<StackFrame> get_julia_frames(jl_bt_element_t *bt_entry) {
@@ -180,37 +194,34 @@ vector<StackFrame> get_native_frame(uintptr_t ip) JL_NOTSAFEPOINT {
     return out_frames;
 }
 
-string entry_to_string(jl_bt_element_t *entry) {
-    ios_t str;
-    ios_mem(&str, 1024);
-        
-    auto frames = jl_bt_is_native(entry)
-        ? get_native_frame(entry[0].uintptr)
-        : get_julia_frames(entry);
-    bool first = true;
-    for (auto frame : frames) {
-        if (!first) {
-            ios_printf(&str, "; ");
-        }
-        ios_printf(
-            &str, "%s at %s:%d",
-            frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
-            // &str, "%s",
-            // frame.func_name.c_str()
-        );
-        first = false;
+string entry_to_string(jl_code_info_t *code_info) {
+    char buf[100];
+    sprintf(buf, "unknown %p", code_info);
+    
+    jl_printf(JL_STDERR, "=====\n");
+    jl_printf(JL_STDERR, "code_info: %p\n", code_info);
+    auto method_instance = code_info->parent;
+    if (!jl_is_method_instance(method_instance)) {
+        return buf;
     }
-
-    string ret = string((const char*)str.buf, str.size);
-    ios_close(&str);
-
-    return ret;
+    jl_printf(JL_STDERR, "method_instance: %p\n", method_instance);
+    auto method = method_instance->def.method;
+    jl_printf(JL_STDERR, "method: %p\n", method);
+    if (!jl_is_method(method)) {
+        return buf;
+    }
+    auto method_name = method->name;
+    jl_printf(JL_STDERR, "method_name: %p\n", method_name);
+    if (jl_is_symbol(method_name)) {
+        return jl_symbol_name(method_name);
+    }
+    return buf;
 }
 
 // === call graph manipulation ===
 
 CallGraphNode *get_or_insert_node(
-    AllocProfile *profile, string frame_label, bool is_native
+    AllocProfile *profile, jl_code_info_t *frame_label, bool is_native
 ) {
     auto node = profile->nodes.find(frame_label);
     if (node != profile->nodes.end()) {
@@ -230,7 +241,7 @@ void incr_or_add_alloc(CallGraphNode *node, size_t type_address) {
     }
 }
 
-void add_call_edge(CallGraphNode *from_node, string to_node) {
+void add_call_edge(CallGraphNode *from_node, jl_code_info_t *to_node) {
     auto calls_out = from_node->calls_out.find(to_node);
     if (calls_out == from_node->calls_out.end()) {
         from_node->calls_out[to_node] = 1;
@@ -245,9 +256,7 @@ void add_call_edge(CallGraphNode *from_node, string to_node) {
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
 void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address) {
-    jl_printf(JL_STDERR, "================\n");
-
-    string prev_frame_label = "";
+    jl_code_info_t *prev_frame_label = nullptr;
     int i = 0;
     while (i < stack.size) {
         jl_bt_element_t *entry = stack.data + i;
@@ -255,30 +264,17 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
         i += entry_size;
 
         auto is_native = jl_bt_is_native(entry);
-        // if (is_native) {
-        //     continue;
-        // }
-
-        auto size_in_bytes = sizeof(jl_bt_element_t) * entry_size;
-        // TODO: free this at some point, lol
-        char *buffer = (char*)malloc(size_in_bytes);
-        char *raw_entry = (char*)entry;
-        for (int j=0; j < size_in_bytes; j++) {
-            buffer[j] = raw_entry[j];
+        if (is_native) {
+            continue;
         }
-        string frame_label = string(buffer, size_in_bytes);
 
-        // test
-        // string expected = entry_to_string(entry);
-        string actual = entry_to_string((jl_bt_element_t*)buffer);
-        jl_printf(JL_STDERR, "  %s\n", actual.c_str());
-        // if (expected != actual) {
-        //     jl_printf(JL_STDERR, "expected %s; got %s\n", expected.c_str(), actual.c_str());
-        // }
+        jl_code_info_t *code_info = get_code_info(entry);
+
+        auto frame_label = code_info;
 
         auto cur_node = get_or_insert_node(profile, frame_label, is_native);
 
-        if (prev_frame_label == "") {
+        if (prev_frame_label == nullptr) {
             incr_or_add_alloc(cur_node, type_address);
         } else {
             add_call_edge(cur_node, prev_frame_label);
@@ -297,27 +293,27 @@ void print_indent(ios_t *out, int level) {
 void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
     jl_printf(JL_STDERR, "serialize start\n");
 
-    unordered_map<string, vector<string>> raw_frames_by_formatted_frame;
-    for (auto node : profile->nodes) {
-        string formatted_frame = entry_to_string((jl_bt_element_t*) node.first.data());
+    // unordered_map<string, vector<string>> raw_frames_by_formatted_frame;
+    // for (auto node : profile->nodes) {
+    //     string formatted_frame = entry_to_string((jl_bt_element_t*) node.first.data());
 
-        auto raw_frame = node.first;
-        auto entries = raw_frames_by_formatted_frame.find(formatted_frame);
-        if (entries == raw_frames_by_formatted_frame.end()) {
-            raw_frames_by_formatted_frame[formatted_frame] = {raw_frame};
-        } else {
-            raw_frames_by_formatted_frame[formatted_frame].push_back(raw_frame);
-        }
-    }
-    for (auto entry : raw_frames_by_formatted_frame) {
-        if (entry.second.size() > 1) {
-            jl_printf(JL_STDERR, "dup frames for %s: %d\n", entry.first.c_str(), entry.second.size());
-        }
-    }
+    //     auto raw_frame = node.first;
+    //     auto entries = raw_frames_by_formatted_frame.find(formatted_frame);
+    //     if (entries == raw_frames_by_formatted_frame.end()) {
+    //         raw_frames_by_formatted_frame[formatted_frame] = {raw_frame};
+    //     } else {
+    //         raw_frames_by_formatted_frame[formatted_frame].push_back(raw_frame);
+    //     }
+    // }
+    // for (auto entry : raw_frames_by_formatted_frame) {
+    //     if (entry.second.size() > 1) {
+    //         jl_printf(JL_STDERR, "dup frames for %s: %d\n", entry.first.c_str(), entry.second.size());
+    //     }
+    // }
 
     ios_printf(out, "digraph {\n");
     for (auto node : profile->nodes) {
-        string entry_str = entry_to_string((jl_bt_element_t*) node.first.data());
+        string entry_str = entry_to_string(node.first);
 
         auto color = node.second->is_native ? "darksalmon" : "thistle";
         ios_printf(out, "  ");
@@ -330,10 +326,10 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
         ios_printf(out, " [fillcolor=darkseagreen1, shape=box, style=filled];\n");
     }
     for (auto node : profile->nodes) {
-        string entry_str = entry_to_string((jl_bt_element_t*) node.first.data());
+        string entry_str = entry_to_string(node.first);
 
         for (auto out_edge : node.second->calls_out) {
-            string out_edge_str = entry_to_string((jl_bt_element_t*) out_edge.first.data());
+            string out_edge_str = entry_to_string(out_edge.first);
             // ios_printf(
             //     out, "%s,%s,%d\n",
             //     node.first.c_str(), out_edge.first.c_str(), out_edge.second

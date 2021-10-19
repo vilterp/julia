@@ -100,7 +100,9 @@ string _type_as_string(jl_datatype_t *type) {
 
 // === stack trace stuff ===
 
-jl_value_t *get_julia_method(jl_bt_element_t *bt_entry) {
+vector<jl_value_t*> get_julia_methods(jl_bt_element_t *bt_entry) {
+    vector<jl_value_t*> out;
+
     size_t ip = jl_bt_entry_header(bt_entry);
     jl_value_t *code = jl_bt_entry_jlvalue(bt_entry, 0);
     if (jl_is_method_instance(code)) {
@@ -109,7 +111,7 @@ jl_value_t *get_julia_method(jl_bt_element_t *bt_entry) {
     }
     if (!jl_is_code_info(code)) {
         jl_printf(JL_STDERR, "not codeinfo\n");
-        return nullptr;
+        return out;
     }
     jl_value_t *method = nullptr;
     jl_code_info_t *src = (jl_code_info_t*)code;
@@ -126,9 +128,11 @@ jl_value_t *get_julia_method(jl_bt_element_t *bt_entry) {
         if (jl_is_method(method))
             method = (jl_value_t*)((jl_method_t*)method)->name;
         
+        out.push_back(method);
+
         debuginfoloc = locinfo->inlined_at;
     }
-    return method;
+    return out;
 }
 
 // copy pasted from stackwalk.c (I think)
@@ -276,19 +280,19 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
             continue;
         }
 
-        jl_value_t *method = get_julia_method(entry);
+        auto methods = get_julia_methods(entry);
 
-        auto frame_label = method;
+        for (auto method : methods) {
+            auto frame_label = method;
+            auto cur_node = get_or_insert_node(profile, frame_label, is_native);
 
-        auto cur_node = get_or_insert_node(profile, frame_label, is_native);
-
-        if (prev_frame_label == nullptr) {
-            incr_or_add_alloc(cur_node, type_address);
-        } else {
-            add_call_edge(cur_node, prev_frame_label);
+            if (prev_frame_label == nullptr) {
+                incr_or_add_alloc(cur_node, type_address);
+            } else {
+                add_call_edge(cur_node, prev_frame_label);
+            }
+            prev_frame_label = frame_label;
         }
-        prev_frame_label = frame_label;
-        i += entry_size;
     }
 }
 

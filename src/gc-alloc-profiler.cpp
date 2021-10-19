@@ -185,19 +185,19 @@ string entry_to_string(jl_bt_element_t *entry) {
     if (jl_bt_is_native(entry)) {
         auto frame = get_native_frame(entry[0].uintptr);
         ios_printf(
-            // &str, "%s at %s:%d",
-            // frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
-            &str, "%s",
-            frame.func_name.c_str()
+            &str, "%s at %s:%d",
+            frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
+            // &str, "%s",
+            // frame.func_name.c_str()
         );
     } else {
         auto frames = get_julia_frames(entry);
         for (auto frame : frames) {
             ios_printf(
-                // &str, "%s at %s:%d",
-                // frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
-                &str, "%s",
-                frame.func_name.c_str()
+                &str, "%s at %s:%d",
+                frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
+                // &str, "%s",
+                // frame.func_name.c_str()
             );
         }    
     }
@@ -294,6 +294,24 @@ void print_indent(ios_t *out, int level) {
 
 void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
     jl_printf(JL_STDERR, "serialize start\n");
+
+    unordered_map<string, vector<string>> raw_frames_by_formatted_frame;
+    for (auto node : profile->nodes) {
+        string formatted_frame = entry_to_string((jl_bt_element_t*) node.first.data());
+
+        auto raw_frame = node.first;
+        auto entries = raw_frames_by_formatted_frame.find(formatted_frame);
+        if (entries == raw_frames_by_formatted_frame.end()) {
+            raw_frames_by_formatted_frame[formatted_frame] = {raw_frame};
+        } else {
+            raw_frames_by_formatted_frame[formatted_frame].push_back(raw_frame);
+        }
+    }
+    for (auto entry : raw_frames_by_formatted_frame) {
+        if (entry.second.size() > 1) {
+            jl_printf(JL_STDERR, "dup frames for %s: %d\n", entry.first.c_str(), entry.second.size());
+        }
+    }
 
     ios_printf(out, "digraph {\n");
     for (auto node : profile->nodes) {

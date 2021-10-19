@@ -28,7 +28,6 @@ struct CallGraphNode {
 struct AllocProfile {
     unordered_map<string, CallGraphNode*> nodes;
     unordered_map<size_t, string> type_name_by_address;
-    unordered_map<size_t, size_t> unknown_function_calls; // num calls by function address
 };
 
 struct RawBacktrace {
@@ -101,6 +100,7 @@ string _type_as_string(jl_datatype_t *type) {
 
 // === stack trace stuff ===
 
+// copy pasted from stackwalk.c (I think)
 vector<StackFrame> get_julia_frames(jl_bt_element_t *bt_entry) {
     vector<StackFrame> ret;
 
@@ -110,37 +110,40 @@ vector<StackFrame> get_julia_frames(jl_bt_element_t *bt_entry) {
         // When interpreting a method instance, need to unwrap to find the code info
         code = ((jl_method_instance_t*)code)->uninferred;
     }
-    if (jl_is_code_info(code)) {
-        jl_code_info_t *src = (jl_code_info_t*)code;
-        // See also the debug info handling in codegen.cpp.
-        // NB: debuginfoloc is 1-based!
-        intptr_t debuginfoloc = ((int32_t*)jl_array_data(src->codelocs))[ip];
-        while (debuginfoloc != 0) {
-            jl_line_info_node_t *locinfo = (jl_line_info_node_t*)
-                jl_array_ptr_ref(src->linetable, debuginfoloc - 1);
-            assert(jl_typeis(locinfo, jl_lineinfonode_type));
-            const char *func_name = "Unknown";
-            jl_value_t *method = locinfo->method;
-            if (jl_is_method_instance(method))
-                method = ((jl_method_instance_t*)method)->def.value;
-            if (jl_is_method(method))
-                method = (jl_value_t*)((jl_method_t*)method)->name;
-            if (jl_is_symbol(method))
-                func_name = jl_symbol_name((jl_sym_t*)method);
-
-            ret.push_back(StackFrame{
-                func_name,
-                jl_symbol_name(locinfo->file),
-                locinfo->line,
-            });
-            
-            debuginfoloc = locinfo->inlined_at;
-        }
+    if (!jl_is_code_info(code)) {
+        char buffer[50];
+        sprintf(buffer, "%p", (void*)code);
+        ret.push_back(StackFrame{
+            buffer,
+            "unknown",
+            0
+        });
+        return ret;
     }
-    else {
-        // If we're using this function something bad has already happened;
-        // be a bit defensive to avoid crashing while reporting the crash.
-        jl_safe_printf("No code info - unknown interpreter state!\n");
+    jl_code_info_t *src = (jl_code_info_t*)code;
+    // See also the debug info handling in codegen.cpp.
+    // NB: debuginfoloc is 1-based!
+    intptr_t debuginfoloc = ((int32_t*)jl_array_data(src->codelocs))[ip];
+    while (debuginfoloc != 0) {
+        jl_line_info_node_t *locinfo = (jl_line_info_node_t*)
+            jl_array_ptr_ref(src->linetable, debuginfoloc - 1);
+        assert(jl_typeis(locinfo, jl_lineinfonode_type));
+        const char *func_name = "Unknown";
+        jl_value_t *method = locinfo->method;
+        if (jl_is_method_instance(method))
+            method = ((jl_method_instance_t*)method)->def.value;
+        if (jl_is_method(method))
+            method = (jl_value_t*)((jl_method_t*)method)->name;
+        if (jl_is_symbol(method))
+            func_name = jl_symbol_name((jl_sym_t*)method);
+
+        ret.push_back(StackFrame{
+            func_name,
+            jl_symbol_name(locinfo->file),
+            locinfo->line,
+        });
+        
+        debuginfoloc = locinfo->inlined_at;
     }
     return ret;
 }

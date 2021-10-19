@@ -315,7 +315,7 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
             ios_printf(out, " [label=%d];\n", alloc_count.second);
         }
     }
-    ios_printf(out, "}");
+    ios_printf(out, "}\n");
 }
 
 // == global variables manipulated by callbacks ==
@@ -385,6 +385,10 @@ void _report_gc_started() {
 
 // TODO: figure out how to pass all of these in as a struct
 void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd) {
+    if (g_alloc_profile_out != nullptr) {
+        alloc_profile_serialize(g_alloc_profile_out, g_alloc_profile);
+        ios_printf(g_alloc_profile_out, "---------------------------\n");
+    }
     // TODO: figure out how to put in commas
     jl_printf(
         JL_STDERR,

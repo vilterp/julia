@@ -21,12 +21,12 @@ struct StackFrame {
 
 struct CallGraphNode {
     bool is_native;
-    unordered_map<jl_code_info_t*, size_t> calls_out; // value: # calls to that edge
+    unordered_map<jl_value_t*, size_t> calls_out; // value: # calls to that edge
     unordered_map<size_t, size_t> allocs_by_type_address; // allocations from this node
 };
 
 struct AllocProfile {
-    unordered_map<jl_code_info_t*, CallGraphNode*> nodes;
+    unordered_map<jl_value_t*, CallGraphNode*> nodes;
     unordered_map<size_t, string> type_name_by_address;
 };
 
@@ -100,18 +100,35 @@ string _type_as_string(jl_datatype_t *type) {
 
 // === stack trace stuff ===
 
-jl_code_info_t *get_code_info(jl_bt_element_t *bt_entry) {
+jl_value_t *get_julia_method(jl_bt_element_t *bt_entry) {
+    size_t ip = jl_bt_entry_header(bt_entry);
     jl_value_t *code = jl_bt_entry_jlvalue(bt_entry, 0);
     if (jl_is_method_instance(code)) {
         // When interpreting a method instance, need to unwrap to find the code info
         code = ((jl_method_instance_t*)code)->uninferred;
     }
     if (!jl_is_code_info(code)) {
-        jl_printf(JL_STDERR, "unknown function");
+        jl_printf(JL_STDERR, "not codeinfo\n");
         return nullptr;
     }
-    // TODO: handle inlining
-    return (jl_code_info_t*)code;
+    jl_value_t *method = nullptr;
+    jl_code_info_t *src = (jl_code_info_t*)code;
+    // See also the debug info handling in codegen.cpp.
+    // NB: debuginfoloc is 1-based!
+    intptr_t debuginfoloc = ((int32_t*)jl_array_data(src->codelocs))[ip];
+    while (debuginfoloc != 0) {
+        jl_line_info_node_t *locinfo = (jl_line_info_node_t*)
+            jl_array_ptr_ref(src->linetable, debuginfoloc - 1);
+        assert(jl_typeis(locinfo, jl_lineinfonode_type));
+        method = locinfo->method;
+        if (jl_is_method_instance(method))
+            method = ((jl_method_instance_t*)method)->def.value;
+        if (jl_is_method(method))
+            method = (jl_value_t*)((jl_method_t*)method)->name;
+        
+        debuginfoloc = locinfo->inlined_at;
+    }
+    return method;
 }
 
 // copy pasted from stackwalk.c (I think)
@@ -194,34 +211,25 @@ vector<StackFrame> get_native_frame(uintptr_t ip) JL_NOTSAFEPOINT {
     return out_frames;
 }
 
-string entry_to_string(jl_code_info_t *code_info) {
+string entry_to_string(jl_value_t *method) {
     char buf[100];
-    sprintf(buf, "unknown %p", code_info);
-    
-    jl_printf(JL_STDERR, "=====\n");
-    jl_printf(JL_STDERR, "code_info: %p\n", code_info);
-    auto method_instance = code_info->parent;
-    if (!jl_is_method_instance(method_instance)) {
-        return buf;
-    }
-    jl_printf(JL_STDERR, "method_instance: %p\n", method_instance);
-    auto method = method_instance->def.method;
-    jl_printf(JL_STDERR, "method: %p\n", method);
-    if (!jl_is_method(method)) {
-        return buf;
-    }
-    auto method_name = method->name;
-    jl_printf(JL_STDERR, "method_name: %p\n", method_name);
-    if (jl_is_symbol(method_name)) {
-        return jl_symbol_name(method_name);
-    }
-    return buf;
+    sprintf(buf, "unknown %p", method);
+
+    char *func_name = buf;
+
+    if (jl_is_method_instance(method))
+        method = ((jl_method_instance_t*)method)->def.value;
+    if (jl_is_method(method))
+        method = (jl_value_t*)((jl_method_t*)method)->name;
+    if (jl_is_symbol(method))
+        func_name = jl_symbol_name((jl_sym_t*)method);
+    return func_name;
 }
 
 // === call graph manipulation ===
 
 CallGraphNode *get_or_insert_node(
-    AllocProfile *profile, jl_code_info_t *frame_label, bool is_native
+    AllocProfile *profile, jl_value_t *frame_label, bool is_native
 ) {
     auto node = profile->nodes.find(frame_label);
     if (node != profile->nodes.end()) {
@@ -241,7 +249,7 @@ void incr_or_add_alloc(CallGraphNode *node, size_t type_address) {
     }
 }
 
-void add_call_edge(CallGraphNode *from_node, jl_code_info_t *to_node) {
+void add_call_edge(CallGraphNode *from_node, jl_value_t *to_node) {
     auto calls_out = from_node->calls_out.find(to_node);
     if (calls_out == from_node->calls_out.end()) {
         from_node->calls_out[to_node] = 1;
@@ -256,7 +264,7 @@ void add_call_edge(CallGraphNode *from_node, jl_code_info_t *to_node) {
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
 void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address) {
-    jl_code_info_t *prev_frame_label = nullptr;
+    jl_value_t *prev_frame_label = nullptr;
     int i = 0;
     while (i < stack.size) {
         jl_bt_element_t *entry = stack.data + i;
@@ -268,9 +276,9 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
             continue;
         }
 
-        jl_code_info_t *code_info = get_code_info(entry);
+        jl_value_t *method = get_julia_method(entry);
 
-        auto frame_label = code_info;
+        auto frame_label = method;
 
         auto cur_node = get_or_insert_node(profile, frame_label, is_native);
 

@@ -21,12 +21,12 @@ struct StackFrame {
 
 struct CallGraphNode {
     bool is_native;
-    unordered_map<string, size_t> calls_out; // value: # calls to that edge
+    unordered_map<char*, size_t> calls_out; // value: # calls to that edge
     unordered_map<size_t, size_t> allocs_by_type_address; // allocations from this node
 };
 
 struct AllocProfile {
-    unordered_map<string, CallGraphNode*> nodes;
+    unordered_map<char*, CallGraphNode*> nodes;
     unordered_map<size_t, string> type_name_by_address;
 };
 
@@ -211,7 +211,7 @@ string entry_to_string(jl_bt_element_t *entry) {
 // === call graph manipulation ===
 
 CallGraphNode *get_or_insert_node(
-    AllocProfile *profile, string frame_label, bool is_native
+    AllocProfile *profile, char *frame_label, bool is_native
 ) {
     auto node = profile->nodes.find(frame_label);
     if (node != profile->nodes.end()) {
@@ -231,7 +231,7 @@ void incr_or_add_alloc(CallGraphNode *node, size_t type_address) {
     }
 }
 
-void add_call_edge(CallGraphNode *from_node, string to_node) {
+void add_call_edge(CallGraphNode *from_node, char *to_node) {
     auto calls_out = from_node->calls_out.find(to_node);
     if (calls_out == from_node->calls_out.end()) {
         from_node->calls_out[to_node] = 1;
@@ -246,26 +246,39 @@ void add_call_edge(CallGraphNode *from_node, string to_node) {
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
 void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address) {
-    string prev_frame_label = "";
+    char *prev_frame_label = nullptr;
     int i = 0;
     while (i < stack.size) {
         jl_bt_element_t *entry = stack.data + i;
         auto entry_size = jl_bt_entry_size(entry);
-        i += entry_size;
         auto is_native = jl_bt_is_native(entry);
-        if (is_native) {
-            continue; // ...
+
+        if (entry_size > 1) {
+            jl_printf(JL_STDERR, "alloc size %d\n", entry_size);
+        }
+        char *buffer = (char*)malloc(entry_size);
+        char *raw_entry = (char*)entry;
+        for (int j=0; j < entry_size; j++) {
+            buffer[j] = raw_entry[j];
         }
 
-        auto frame_label = entry_to_string(entry);
+        // test
+        string expected = entry_to_string(entry);
+        string actual = entry_to_string((jl_bt_element_t*)buffer);
+        if (expected != actual) {
+            jl_printf(JL_STDERR, "expected %s; got %s\n", expected.c_str(), actual.c_str());
+        }
+
+        auto frame_label = buffer;
         auto cur_node = get_or_insert_node(profile, frame_label, is_native);
 
-        if (prev_frame_label == "") {
+        if (prev_frame_label == nullptr) {
             incr_or_add_alloc(cur_node, type_address);
         } else {
             add_call_edge(cur_node, prev_frame_label);
         }
         prev_frame_label = frame_label;
+        i += entry_size;
     }
 }
 
@@ -280,9 +293,11 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
 
     ios_printf(out, "digraph {\n");
     for (auto node : profile->nodes) {
+        string entry_str = entry_to_string((jl_bt_element_t*) node.first);
+
         auto color = node.second->is_native ? "darksalmon" : "thistle";
         ios_printf(out, "  ");
-        print_str_escape_dot(out, node.first.c_str());
+        print_str_escape_dot(out, entry_str);
         ios_printf(out, " [shape=box, fillcolor=%s, style=filled];\n", color);
     }
     for (auto type : profile->type_name_by_address) {
@@ -291,15 +306,18 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
         ios_printf(out, " [fillcolor=darkseagreen1, shape=box, style=filled];\n");
     }
     for (auto node : profile->nodes) {
+        string entry_str = entry_to_string((jl_bt_element_t*) node.first);
+
         for (auto out_edge : node.second->calls_out) {
+            string out_edge_str = entry_to_string((jl_bt_element_t*) out_edge.first);
             // ios_printf(
             //     out, "%s,%s,%d\n",
             //     node.first.c_str(), out_edge.first.c_str(), out_edge.second
             // );
             ios_printf(out, "  ");
-            print_str_escape_dot(out, node.first.c_str());
+            print_str_escape_dot(out, entry_str);
             ios_printf(out, " -> ");
-            print_str_escape_dot(out, out_edge.first.c_str());
+            print_str_escape_dot(out, out_edge_str);
             ios_printf(out, " [label=%d];\n", out_edge.second);
         }
         for (auto alloc_count : node.second->allocs_by_type_address) {
@@ -309,7 +327,7 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
             // ios_printf(out, "%d\n", alloc_count.second);
 
             ios_printf(out, "  ");
-            print_str_escape_dot(out, node.first.c_str());
+            print_str_escape_dot(out, entry_str);
             ios_printf(out, " -> ");
             print_str_escape_dot(out, type_name.c_str());
             ios_printf(out, " [label=%d];\n", alloc_count.second);

@@ -21,12 +21,12 @@ struct StackFrame {
 
 struct CallGraphNode {
     bool is_native;
-    unordered_map<char*, size_t> calls_out; // value: # calls to that edge
+    unordered_map<string, size_t> calls_out; // value: # calls to that edge
     unordered_map<size_t, size_t> allocs_by_type_address; // allocations from this node
 };
 
 struct AllocProfile {
-    unordered_map<char*, CallGraphNode*> nodes;
+    unordered_map<string, CallGraphNode*> nodes;
     unordered_map<size_t, string> type_name_by_address;
 };
 
@@ -211,7 +211,7 @@ string entry_to_string(jl_bt_element_t *entry) {
 // === call graph manipulation ===
 
 CallGraphNode *get_or_insert_node(
-    AllocProfile *profile, char *frame_label, bool is_native
+    AllocProfile *profile, string frame_label, bool is_native
 ) {
     auto node = profile->nodes.find(frame_label);
     if (node != profile->nodes.end()) {
@@ -231,7 +231,7 @@ void incr_or_add_alloc(CallGraphNode *node, size_t type_address) {
     }
 }
 
-void add_call_edge(CallGraphNode *from_node, char *to_node) {
+void add_call_edge(CallGraphNode *from_node, string to_node) {
     auto calls_out = from_node->calls_out.find(to_node);
     if (calls_out == from_node->calls_out.end()) {
         from_node->calls_out[to_node] = 1;
@@ -246,12 +246,17 @@ void add_call_edge(CallGraphNode *from_node, char *to_node) {
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
 void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address) {
-    char *prev_frame_label = nullptr;
+    string prev_frame_label = "";
     int i = 0;
     while (i < stack.size) {
         jl_bt_element_t *entry = stack.data + i;
         auto entry_size = jl_bt_entry_size(entry);
+        i += entry_size;
+
         auto is_native = jl_bt_is_native(entry);
+        if (is_native) {
+            continue;
+        }
 
         auto size_in_bytes = sizeof(jl_bt_element_t) * entry_size;
         // TODO: free this at some point, lol
@@ -260,6 +265,7 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
         for (int j=0; j < size_in_bytes; j++) {
             buffer[j] = raw_entry[j];
         }
+        string frame_label = string(buffer, size_in_bytes);
 
         // test
         string expected = entry_to_string(entry);
@@ -268,10 +274,9 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
             jl_printf(JL_STDERR, "expected %s; got %s\n", expected.c_str(), actual.c_str());
         }
 
-        auto frame_label = buffer;
         auto cur_node = get_or_insert_node(profile, frame_label, is_native);
 
-        if (prev_frame_label == nullptr) {
+        if (prev_frame_label == "") {
             incr_or_add_alloc(cur_node, type_address);
         } else {
             add_call_edge(cur_node, prev_frame_label);
@@ -292,7 +297,7 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
 
     ios_printf(out, "digraph {\n");
     for (auto node : profile->nodes) {
-        string entry_str = entry_to_string((jl_bt_element_t*) node.first);
+        string entry_str = entry_to_string((jl_bt_element_t*) node.first.data());
 
         auto color = node.second->is_native ? "darksalmon" : "thistle";
         ios_printf(out, "  ");
@@ -305,10 +310,10 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
         ios_printf(out, " [fillcolor=darkseagreen1, shape=box, style=filled];\n");
     }
     for (auto node : profile->nodes) {
-        string entry_str = entry_to_string((jl_bt_element_t*) node.first);
+        string entry_str = entry_to_string((jl_bt_element_t*) node.first.data());
 
         for (auto out_edge : node.second->calls_out) {
-            string out_edge_str = entry_to_string((jl_bt_element_t*) out_edge.first);
+            string out_edge_str = entry_to_string((jl_bt_element_t*) out_edge.first.data());
             // ios_printf(
             //     out, "%s,%s,%d\n",
             //     node.first.c_str(), out_edge.first.c_str(), out_edge.second

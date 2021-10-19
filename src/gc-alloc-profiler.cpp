@@ -253,12 +253,11 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
         auto entry_size = jl_bt_entry_size(entry);
         auto is_native = jl_bt_is_native(entry);
 
-        if (entry_size > 1) {
-            jl_printf(JL_STDERR, "alloc size %d\n", entry_size);
-        }
-        char *buffer = (char*)malloc(entry_size);
+        auto size_in_bytes = sizeof(jl_bt_element_t) * entry_size;
+        // TODO: free this at some point, lol
+        char *buffer = (char*)malloc(size_in_bytes);
         char *raw_entry = (char*)entry;
-        for (int j=0; j < entry_size; j++) {
+        for (int j=0; j < size_in_bytes; j++) {
             buffer[j] = raw_entry[j];
         }
 

@@ -254,9 +254,9 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
         i += entry_size;
 
         auto is_native = jl_bt_is_native(entry);
-        if (is_native) {
-            continue;
-        }
+        // if (is_native) {
+        //     continue;
+        // }
 
         auto size_in_bytes = sizeof(jl_bt_element_t) * entry_size;
         // TODO: free this at some point, lol
@@ -268,11 +268,11 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
         string frame_label = string(buffer, size_in_bytes);
 
         // test
-        string expected = entry_to_string(entry);
-        string actual = entry_to_string((jl_bt_element_t*)buffer);
-        if (expected != actual) {
-            jl_printf(JL_STDERR, "expected %s; got %s\n", expected.c_str(), actual.c_str());
-        }
+        // string expected = entry_to_string(entry);
+        // string actual = entry_to_string((jl_bt_element_t*)buffer);
+        // if (expected != actual) {
+        //     jl_printf(JL_STDERR, "expected %s; got %s\n", expected.c_str(), actual.c_str());
+        // }
 
         auto cur_node = get_or_insert_node(profile, frame_label, is_native);
 

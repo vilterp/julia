@@ -50,6 +50,28 @@ void print_str_escape_csv(ios_t *stream, const string &s) {
     ios_printf(stream, "\"");
 }
 
+void print_str_escape_dot(ios_t *stream, const string &s) {
+    ios_printf(stream, "\"");
+    for (auto c = s.cbegin(); c != s.cend(); c++) {
+        switch (*c) {
+        case '"': ios_printf(stream, "\\\""); break;
+        case '\\': ios_printf(stream, "\\\\"); break;
+        case '\b': ios_printf(stream, "\\b"); break;
+        case '\f': ios_printf(stream, "\\f"); break;
+        case '\n': ios_printf(stream, "\\n"); break;
+        case '\r': ios_printf(stream, "\\r"); break;
+        case '\t': ios_printf(stream, "\\t"); break;
+        default:
+            if ('\x00' <= *c && *c <= '\x1f') {
+                ios_printf(stream, "\\u%04x", (int)*c);
+            } else {
+                ios_printf(stream, "%c", *c);
+            }
+        }
+    }
+    ios_printf(stream, "\"");
+}
+
 string _type_as_string(jl_datatype_t *type) {
     if ((uintptr_t)type < 4096U) {
         return "<corrupt>";
@@ -254,16 +276,14 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
     ios_printf(out, "digraph {\n");
     for (auto node : profile->nodes) {
         auto color = node.second->is_native ? "darksalmon" : "thistle";
-        ios_printf(
-            out, "  \"%s\" [shape=box, fillcolor=%s, style=filled];\n",
-            node.first.c_str(), color
-        );
+        ios_printf(out, "  ");
+        print_str_escape_dot(out, node.first.c_str());
+        ios_printf(out, " [shape=box, fillcolor=%s, style=filled];\n", color);
     }
     for (auto type : profile->type_name_by_address) {
-        ios_printf(
-            out, "  \"%s\" [fillcolor=darkseagreen1, shape=box, style=filled];\n",
-            type.second.c_str()
-        );
+        ios_printf(out, "  ");
+        print_str_escape_dot(out, type.second.c_str());
+        ios_printf(out, " [fillcolor=darkseagreen1, shape=box, style=filled];\n");
     }
     for (auto node : profile->nodes) {
         for (auto out_edge : node.second->calls_out) {
@@ -271,20 +291,23 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
             //     out, "%s,%s,%d\n",
             //     node.first.c_str(), out_edge.first.c_str(), out_edge.second
             // );
-            ios_printf(
-                out, "  \"%s\" -> \"%s\" [label=%d];\n",
-                node.first.c_str(), out_edge.first.c_str(), out_edge.second
-            );
+            ios_printf(out, "  ");
+            print_str_escape_dot(out, node.first.c_str());
+            ios_printf(out, " -> ");
+            print_str_escape_dot(out, out_edge.first.c_str());
+            ios_printf(out, " [label=%d];\n", out_edge.second);
         }
         for (auto alloc_count : node.second->allocs_by_type_address) {
             auto type_name = profile->type_name_by_address[alloc_count.first];
             // ios_printf(out, "%s,", node.first.c_str());
             // print_str_escape_csv(out, type_name.c_str());
             // ios_printf(out, "%d\n", alloc_count.second);
-            ios_printf(
-                out, "  \"%s\" -> \"%s\" [label=%d];\n",
-                node.first.c_str(), type_name.c_str(), alloc_count.second
-            );
+
+            ios_printf(out, "  ");
+            print_str_escape_dot(out, node.first.c_str());
+            ios_printf(out, " -> ");
+            print_str_escape_dot(out, type_name.c_str());
+            ios_printf(out, " [label=%d];\n", alloc_count.second);
         }
     }
     ios_printf(out, "}");

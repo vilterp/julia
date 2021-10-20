@@ -113,6 +113,8 @@ string _type_as_string(jl_datatype_t *type) {
 
 // copy pasted from stackwalk.c (I think)
 vector<StackFrame> get_julia_frames(jl_bt_element_t *bt_entry) {
+    jl_printf(JL_STDERR, "hello from get_julia_frames ====\n");
+
     vector<StackFrame> ret;
 
     size_t ip = jl_bt_entry_header(bt_entry);
@@ -155,6 +157,8 @@ vector<StackFrame> get_julia_frames(jl_bt_element_t *bt_entry) {
             locinfo->line,
             false // is_native
         });
+
+        jl_printf(JL_STDERR, "hello from get_julia_frames: %s\n", func_name);
         
         debuginfoloc = locinfo->inlined_at;
     }
@@ -267,6 +271,15 @@ vector<StackFrame> get_frames(
 
 const int SKIP_FRAMES = 2;
 
+// https://stackoverflow.com/questions/874134/find-out-if-string-ends-with-another-string-in-c
+bool ends_with(std::string const &full_string, std::string const &ending) {
+    if (full_string.length() >= ending.length()) {
+        return (0 == full_string.compare(full_string.length() - ending.length(), ending.length(), ending));
+    } else {
+        return false;
+    }
+}
+
 // Insert a record into the trie indicating that we allocated the
 // given type at the given stack.
 //
@@ -297,7 +310,10 @@ void record_alloc(
                 continue;
             }
             auto frame_label = frame.func_name;
-            auto cur_node = get_or_insert_node(builder->graph, frame_label, frame.is_native);
+
+            auto actual_is_native = ends_with(frame.file_name, ".c");
+
+            auto cur_node = get_or_insert_node(builder->graph, frame_label, actual_is_native);
 
             if (prev_frame_label == "") {
                 incr_or_add_alloc(cur_node, type_address);
@@ -306,6 +322,7 @@ void record_alloc(
             }
             prev_frame_label = frame_label;
         }
+        // TODO: add edge from root to bottom of stack?
     }
 }
 

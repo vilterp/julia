@@ -250,12 +250,46 @@ void add_call_edge(CallGraphNode *from_node, string to_node) {
     }
 }
 
+string frame_as_string(jl_bt_element_t *entry, size_t entry_size) {
+    auto size_in_bytes = entry_size * sizeof(jl_bt_element_t);
+    char *buf = (char*)malloc(size_in_bytes);
+    for (int i=0; i < size_in_bytes; i++) {
+        buf[i] = ((char*)entry)[i];
+    }
+    return string(buf, size_in_bytes);
+}
+
+vector<StackFrame> get_frames(
+    jl_bt_element_t *entry,
+    size_t entry_size,
+    bool is_native,
+    unordered_map<string, vector<StackFrame>> cache
+) {
+    string entry_str = frame_as_string(entry, entry_size);
+    
+    auto maybe_frames = cache.find(entry_str);
+    if (maybe_frames == cache.end()) {
+        auto frames = is_native
+            ? get_native_frames(entry[0].uintptr)
+            : get_julia_frames(entry);
+        cache[entry_str] = frames;
+        return frames;
+    } else {
+        return maybe_frames->second;
+    }
+}
+
 // Insert a record into the trie indicating that we allocated the
 // given type at the given stack.
 //
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
-void record_alloc(AllocGraph *graph, RawBacktrace stack, size_t type_address) {
+void record_alloc(
+    AllocGraph *graph,
+    unordered_map<string, vector<StackFrame>> cache,
+    RawBacktrace stack,
+    size_t type_address
+) {
     string prev_frame_label = "";
     int i = 0;
     while (i < stack.size) {
@@ -267,9 +301,7 @@ void record_alloc(AllocGraph *graph, RawBacktrace stack, size_t type_address) {
         //     continue; // ...
         // }
 
-        auto frames = is_native
-            ? get_native_frames(entry[0].uintptr)
-            : get_julia_frames(entry);
+        auto frames = get_frames(entry, entry_size, is_native, cache);
 
         for (auto frame : frames) {
             auto frame_label = frame.func_name;
@@ -289,9 +321,10 @@ AllocGraph *build_alloc_graph(AllocProfile *profile) {
     jl_printf(JL_STDERR, "building alloc graph from %d allocs\n", profile->allocs.size());
 
     AllocGraph *graph = new AllocGraph();
+    unordered_map<string, vector<StackFrame>> cache;
     graph->type_name_by_address = profile->type_name_by_address;
     for (auto alloc : profile->allocs) {
-        record_alloc(graph, alloc.backtrace, alloc.type_id);
+        record_alloc(graph, cache, alloc.backtrace, alloc.type_id);
     }
     return graph;
 }

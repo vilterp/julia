@@ -191,7 +191,7 @@ string entry_to_string(jl_bt_element_t *entry) {
     bool first = true;
     for (auto frame : frames) {
         if (!first) {
-            ios_printf(&str, "\n");
+            ios_printf(&str, "; ");
         }
         ios_printf(
             // &str, "%s at %s:%d",
@@ -253,19 +253,25 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
         auto entry_size = jl_bt_entry_size(entry);
         i += entry_size;
         auto is_native = jl_bt_is_native(entry);
-        if (is_native) {
-            continue; // ...
-        }
+        // if (is_native) {
+        //     continue; // ...
+        // }
 
-        auto frame_label = entry_to_string(entry);
-        auto cur_node = get_or_insert_node(profile, frame_label, is_native);
+        auto frames = is_native
+            ? get_native_frames(entry[0].uintptr)
+            : get_julia_frames(entry);
 
-        if (prev_frame_label == "") {
-            incr_or_add_alloc(cur_node, type_address);
-        } else {
-            add_call_edge(cur_node, prev_frame_label);
+        for (auto frame : frames) {
+            auto frame_label = frame.func_name;
+            auto cur_node = get_or_insert_node(profile, frame_label, is_native);
+
+            if (prev_frame_label == "") {
+                incr_or_add_alloc(cur_node, type_address);
+            } else {
+                add_call_edge(cur_node, prev_frame_label);
+            }
+            prev_frame_label = frame_label;
         }
-        prev_frame_label = frame_label;
     }
 }
 

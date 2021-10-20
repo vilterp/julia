@@ -25,14 +25,24 @@ struct CallGraphNode {
     unordered_map<size_t, size_t> allocs_by_type_address; // allocations from this node
 };
 
-struct AllocProfile {
-    unordered_map<string, CallGraphNode*> nodes;
-    unordered_map<size_t, string> type_name_by_address;
-};
-
 struct RawBacktrace {
     jl_bt_element_t *data;
     size_t size;
+};
+
+struct Alloc {
+    RawBacktrace backtrace;
+    size_t type_id;
+};
+
+struct AllocProfile {
+    vector<Alloc> allocs;
+    unordered_map<size_t, string> type_name_by_address;
+};
+
+struct AllocGraph {
+    unordered_map<string, CallGraphNode*> nodes;
+    unordered_map<size_t, string> type_name_by_address;
 };
 
 // == utility functions ==
@@ -211,14 +221,14 @@ string entry_to_string(jl_bt_element_t *entry) {
 // === call graph manipulation ===
 
 CallGraphNode *get_or_insert_node(
-    AllocProfile *profile, string frame_label, bool is_native
+    AllocGraph *graph, string frame_label, bool is_native
 ) {
-    auto node = profile->nodes.find(frame_label);
-    if (node != profile->nodes.end()) {
+    auto node = graph->nodes.find(frame_label);
+    if (node != graph->nodes.end()) {
         return node->second;
     }
     auto new_node = new CallGraphNode{is_native};
-    profile->nodes[frame_label] = new_node;
+    graph->nodes[frame_label] = new_node;
     return new_node;
 }
 
@@ -245,7 +255,7 @@ void add_call_edge(CallGraphNode *from_node, string to_node) {
 //
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
-void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address) {
+void record_alloc(AllocGraph *graph, RawBacktrace stack, size_t type_address) {
     string prev_frame_label = "";
     int i = 0;
     while (i < stack.size) {
@@ -263,7 +273,7 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
 
         for (auto frame : frames) {
             auto frame_label = frame.func_name;
-            auto cur_node = get_or_insert_node(profile, frame_label, is_native);
+            auto cur_node = get_or_insert_node(graph, frame_label, is_native);
 
             if (prev_frame_label == "") {
                 incr_or_add_alloc(cur_node, type_address);
@@ -275,28 +285,39 @@ void record_alloc(AllocProfile *profile, RawBacktrace stack, size_t type_address
     }
 }
 
+AllocGraph *build_alloc_graph(AllocProfile *profile) {
+    jl_printf(JL_STDERR, "building alloc graph from %d allocs\n", profile->allocs.size());
+
+    AllocGraph *graph = new AllocGraph();
+    graph->type_name_by_address = profile->type_name_by_address;
+    for (auto alloc : profile->allocs) {
+        record_alloc(graph, alloc.backtrace, alloc.type_id);
+    }
+    return graph;
+}
+
 void print_indent(ios_t *out, int level) {
     for (int i=0; i < level; i++) {
         ios_printf(out, "  ");
     }
 }
 
-void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
+void alloc_graph_serialize(ios_t *out, AllocGraph *graph) {
     jl_printf(JL_STDERR, "serialize start\n");
 
     ios_printf(out, "digraph {\n");
-    for (auto node : profile->nodes) {
+    for (auto node : graph->nodes) {
         auto color = node.second->is_native ? "darksalmon" : "thistle";
         ios_printf(out, "  ");
         print_str_escape_dot(out, node.first.c_str());
         ios_printf(out, " [shape=box, fillcolor=%s, style=filled];\n", color);
     }
-    for (auto type : profile->type_name_by_address) {
+    for (auto type : graph->type_name_by_address) {
         ios_printf(out, "  ");
         print_str_escape_dot(out, type.second.c_str());
         ios_printf(out, " [fillcolor=darkseagreen1, shape=box, style=filled];\n");
     }
-    for (auto node : profile->nodes) {
+    for (auto node : graph->nodes) {
         for (auto out_edge : node.second->calls_out) {
             // ios_printf(
             //     out, "%s,%s,%d\n",
@@ -309,7 +330,7 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
             ios_printf(out, " [label=%d];\n", out_edge.second);
         }
         for (auto alloc_count : node.second->allocs_by_type_address) {
-            auto type_name = profile->type_name_by_address[alloc_count.first];
+            auto type_name = graph->type_name_by_address[alloc_count.first];
             // ios_printf(out, "%s,", node.first.c_str());
             // print_str_escape_csv(out, type_name.c_str());
             // ios_printf(out, "%d\n", alloc_count.second);
@@ -337,7 +358,8 @@ JL_DLLEXPORT void jl_start_alloc_profile(ios_t *stream) {
 }
 
 JL_DLLEXPORT void jl_stop_alloc_profile() {
-    alloc_profile_serialize(g_alloc_profile_out, g_alloc_profile);
+    auto graph = build_alloc_graph(g_alloc_profile);
+    alloc_graph_serialize(g_alloc_profile_out, graph);
     ios_flush(g_alloc_profile_out);
 
     g_alloc_profile_out = nullptr;
@@ -377,12 +399,12 @@ void _record_allocated_value(jl_value_t *val) {
     register_type_string(type);
 
     // TODO: get stack, push into vector
-    auto stack = get_stack();
+    auto raw_backtrace = get_stack();
 
-    record_alloc(g_alloc_profile, stack, (size_t)type);
-
-    // TODO: more idiomatic way to destruct this
-    // free(stack.data);
+    g_alloc_profile->allocs.push_back(Alloc{
+        raw_backtrace,
+        (size_t)type
+    });
 }
 
 void _report_gc_started() {
@@ -391,11 +413,7 @@ void _report_gc_started() {
 
 // TODO: figure out how to pass all of these in as a struct
 void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd) {
-    if (g_alloc_profile_out != nullptr) {
-        alloc_profile_serialize(g_alloc_profile_out, g_alloc_profile);
-        ios_printf(g_alloc_profile_out, "---------------------------\n");
-    }
-    // TODO: figure out how to put in commas
+    // TODO: figure out how to put in commas in numbers
     jl_printf(
         JL_STDERR,
         "GC: pause %fms. collected %fMB. %lld allocs total\n",

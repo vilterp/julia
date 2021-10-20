@@ -262,27 +262,34 @@ string frame_as_string(jl_bt_element_t *entry, size_t entry_size) {
 struct GraphBuilder {
     AllocGraph *graph;
     unordered_map<string, vector<StackFrame>> cache;
+
+    size_t cache_hits;
+    size_t cache_misses;
 };
 
 vector<StackFrame> get_frames(
-    GraphBuilder builder,
+    GraphBuilder *builder,
     jl_bt_element_t *entry,
     size_t entry_size,
     bool is_native
 ) {
     string entry_str = frame_as_string(entry, entry_size);
     
-    auto maybe_frames = builder.cache.find(entry_str);
-    if (maybe_frames == builder.cache.end()) {
+    auto maybe_frames = builder->cache.find(entry_str);
+    if (maybe_frames == builder->cache.end()) {
+        builder->cache_misses++;
         auto frames = is_native
             ? get_native_frames(entry[0].uintptr)
             : get_julia_frames(entry);
-        builder.cache[entry_str] = frames;
+        builder->cache[entry_str] = frames;
         return frames;
     } else {
+        builder->cache_hits++;
         return maybe_frames->second;
     }
 }
+
+const int SKIP_FRAMES = 2;
 
 // Insert a record into the trie indicating that we allocated the
 // given type at the given stack.
@@ -290,7 +297,7 @@ vector<StackFrame> get_frames(
 // TODO: move to method on StackTrieNode
 // I don't know how to C++
 void record_alloc(
-    GraphBuilder builder,
+    GraphBuilder *builder,
     RawBacktrace stack,
     size_t type_address
 ) {
@@ -307,9 +314,14 @@ void record_alloc(
 
         auto frames = get_frames(builder, entry, entry_size, is_native);
 
+        int count = 0;
         for (auto frame : frames) {
+            if (count < SKIP_FRAMES) {
+                count++;
+                continue;
+            }
             auto frame_label = frame.func_name;
-            auto cur_node = get_or_insert_node(builder.graph, frame_label, is_native);
+            auto cur_node = get_or_insert_node(builder->graph, frame_label, is_native);
 
             if (prev_frame_label == "") {
                 incr_or_add_alloc(cur_node, type_address);
@@ -324,14 +336,18 @@ void record_alloc(
 AllocGraph *build_alloc_graph(AllocProfile *profile) {
     jl_printf(JL_STDERR, "building alloc graph from %d allocs\n", profile->allocs.size());
 
-    auto graph_builder = GraphBuilder{
+    auto builder = new GraphBuilder{
         new AllocGraph()
     };
-    graph_builder.graph->type_name_by_address = profile->type_name_by_address;
+    builder->graph->type_name_by_address = profile->type_name_by_address;
     for (auto alloc : profile->allocs) {
-        record_alloc(graph_builder, alloc.backtrace, alloc.type_id);
+        record_alloc(builder, alloc.backtrace, alloc.type_id);
     }
-    return graph_builder.graph;
+
+    jl_printf(JL_STDERR, "hits: %zu\n", builder->cache_hits);
+    jl_printf(JL_STDERR, "misses: %zu\n", builder->cache_misses);
+
+    return builder->graph;
 }
 
 void print_indent(ios_t *out, int level) {

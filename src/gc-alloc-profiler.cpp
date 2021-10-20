@@ -284,6 +284,8 @@ void record_alloc(
     RawBacktrace stack,
     size_t type_address
 ) {
+    // jl_printf(JL_STDERR, "==========\n");
+
     string prev_frame_label = "";
     int i = 0;
     while (i < stack.size) {
@@ -299,8 +301,10 @@ void record_alloc(
 
         for (auto frame : frames) {
             auto frame_label = frame.func_name;
-            auto actual_is_native = ends_with(frame.file_name, ".c");
+            auto actual_is_native = !ends_with(frame.file_name, ".jl");
             auto cur_node = get_or_insert_node(builder->graph, frame_label, actual_is_native);
+
+            // jl_printf(JL_STDERR, " %s at %s:%d\n", frame_label.c_str(), frame.file_name.c_str(), frame.line_no);
 
             if (prev_frame_label == "") {
                 incr_or_add_alloc(cur_node, type_address);

@@ -17,6 +17,7 @@ struct StackFrame {
     string func_name;
     string file_name;
     intptr_t line_no;
+    bool is_native;
 };
 
 struct CallGraphNode {
@@ -126,7 +127,8 @@ vector<StackFrame> get_julia_frames(jl_bt_element_t *bt_entry) {
         ret.push_back(StackFrame{
             buffer,
             "unknown",
-            0
+            0,
+            false // is_native
         });
         return ret;
     }
@@ -151,6 +153,7 @@ vector<StackFrame> get_julia_frames(jl_bt_element_t *bt_entry) {
             func_name,
             jl_symbol_name(locinfo->file),
             locinfo->line,
+            false // is_native
         });
         
         debuginfoloc = locinfo->inlined_at;
@@ -178,7 +181,8 @@ vector<StackFrame> get_native_frames(uintptr_t ip) JL_NOTSAFEPOINT {
             out_frames.push_back(StackFrame{
                 frame.func_name,
                 frame.file_name,
-                frame.line
+                frame.line,
+                true // is_native
             });
 
             free(frame.func_name);
@@ -188,34 +192,6 @@ vector<StackFrame> get_native_frames(uintptr_t ip) JL_NOTSAFEPOINT {
     free(frames);
 
     return out_frames;
-}
-
-string entry_to_string(jl_bt_element_t *entry) {
-    ios_t str;
-    ios_mem(&str, 10024);
-        
-    auto frames = jl_bt_is_native(entry)
-        ? get_native_frames(entry[0].uintptr)
-        : get_julia_frames(entry);
-    
-    bool first = true;
-    for (auto frame : frames) {
-        if (!first) {
-            ios_printf(&str, "; ");
-        }
-        ios_printf(
-            // &str, "%s at %s:%d",
-            // frame.func_name.c_str(), frame.file_name.c_str(), frame.line_no
-            &str, "%s",
-            frame.func_name.c_str()
-        );
-        first = false;
-    }
-
-    string ret = string((const char*)str.buf, str.size);
-    ios_close(&str);
-
-    return ret;
 }
 
 // === call graph manipulation ===
@@ -321,7 +297,7 @@ void record_alloc(
                 continue;
             }
             auto frame_label = frame.func_name;
-            auto cur_node = get_or_insert_node(builder->graph, frame_label, is_native);
+            auto cur_node = get_or_insert_node(builder->graph, frame_label, frame.is_native);
 
             if (prev_frame_label == "") {
                 incr_or_add_alloc(cur_node, type_address);

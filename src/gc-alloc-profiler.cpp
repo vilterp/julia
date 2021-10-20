@@ -298,12 +298,16 @@ void record_alloc(
 
         for (auto frame : frames) {
             auto frame_label = frame.func_name;
-            auto actual_is_native = !ends_with(frame.file_name, ".jl");
-            auto cur_node = get_or_insert_node(builder->graph, frame_label, actual_is_native);
+            auto is_julia = ends_with(frame.file_name, ".jl") || frame.file_name == "top-level scope";
+            auto actual_is_native = !is_julia;
+            // TODO: starts_with
+            auto is_stdlib = is_julia && frame.func_name[0] == '.' && frame.func_name[1] == '/';
 
-            if (actual_is_native) {
+            if (is_native || is_stdlib) {
                 continue; // ...
             }
+
+            auto cur_node = get_or_insert_node(builder->graph, frame_label, actual_is_native);
 
             // jl_printf(JL_STDERR, " %s at %s:%d\n", frame_label.c_str(), frame.file_name.c_str(), frame.line_no);
 

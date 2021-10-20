@@ -293,9 +293,6 @@ void record_alloc(
         auto entry_size = jl_bt_entry_size(entry);
         i += entry_size;
         auto is_native = jl_bt_is_native(entry);
-        // if (is_native) {
-        //     continue; // ...
-        // }
 
         auto frames = get_frames(builder, entry, entry_size, is_native);
 
@@ -303,6 +300,10 @@ void record_alloc(
             auto frame_label = frame.func_name;
             auto actual_is_native = !ends_with(frame.file_name, ".jl");
             auto cur_node = get_or_insert_node(builder->graph, frame_label, actual_is_native);
+
+            if (actual_is_native) {
+                continue; // ...
+            }
 
             // jl_printf(JL_STDERR, " %s at %s:%d\n", frame_label.c_str(), frame.file_name.c_str(), frame.line_no);
 
@@ -383,6 +384,10 @@ void alloc_graph_serialize(ios_t *out, AllocGraph *graph) {
     ios_printf(out, "}\n");
 }
 
+void contract_graph(AllocGraph *graph) {
+    // TODO: ...
+}
+
 // == global variables manipulated by callbacks ==
 
 AllocProfile *g_alloc_profile;
@@ -397,6 +402,7 @@ JL_DLLEXPORT void jl_start_alloc_profile(ios_t *stream) {
 
 JL_DLLEXPORT void jl_stop_alloc_profile() {
     auto graph = build_alloc_graph(g_alloc_profile);
+    contract_graph(graph);
     alloc_graph_serialize(g_alloc_profile_out, graph);
     ios_flush(g_alloc_profile_out);
 

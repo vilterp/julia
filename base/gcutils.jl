@@ -127,12 +127,12 @@ function take_heap_snapshot(io)
     ccall(:jl_gc_take_heap_snapshot, Cvoid, (Ptr{Cvoid},), (io::IOStream).handle::Ptr{Cvoid})
 end
 
-function start_alloc_profile(io, skip_every::Int=0)
-    ccall(:jl_start_alloc_profile, Cvoid, (Ptr{Cvoid}, Cint), io.handle, skip_every)
+function start_alloc_profile(skip_every::Int=0)
+    ccall(:jl_start_alloc_profile, Cvoid, (Cint,), skip_every)
 end
 
-function stop_alloc_profile()
-    ccall(:jl_stop_alloc_profile, Cvoid, ())
+function stop_and_write_alloc_profile(io)
+    ccall(:jl_stop_alloc_profile, Cvoid, (Ptr{Cvoid},) io.handle)
 end
 
 function enable_finalizers()

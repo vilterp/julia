@@ -266,9 +266,17 @@ vector<StackFrame> get_frames(
 }
 
 // https://stackoverflow.com/questions/874134/find-out-if-string-ends-with-another-string-in-c
-bool ends_with(std::string const &full_string, std::string const &ending) {
+bool ends_with(string const &full_string, string const &ending) {
     if (full_string.length() >= ending.length()) {
         return (0 == full_string.compare(full_string.length() - ending.length(), ending.length(), ending));
+    } else {
+        return false;
+    }
+}
+
+bool starts_with(string const &full_string, string const &beginning) {
+    if (full_string.length() >= beginning.length()) {
+        return (0 == full_string.compare(0, beginning.length(), beginning));
     } else {
         return false;
     }
@@ -284,14 +292,14 @@ void record_alloc(
     RawBacktrace stack,
     size_t type_address
 ) {
-    // jl_printf(JL_STDERR, "==========\n");
-
     string prev_frame_label = "";
     int i = 0;
     while (i < stack.size) {
         jl_bt_element_t *entry = stack.data + i;
         auto entry_size = jl_bt_entry_size(entry);
         i += entry_size;
+        // TODO: this doesn't seem to correspond with it being C
+        // so I'm not sure what it means.
         auto is_native = jl_bt_is_native(entry);
 
         auto frames = get_frames(builder, entry, entry_size, is_native);
@@ -300,16 +308,13 @@ void record_alloc(
             auto frame_label = frame.func_name;
             auto is_julia = ends_with(frame.file_name, ".jl") || frame.file_name == "top-level scope";
             auto actual_is_native = !is_julia;
-            // TODO: starts_with
-            auto is_stdlib = is_julia && frame.func_name[0] == '.' && frame.func_name[1] == '/';
+            auto is_stdlib = is_julia && starts_with(frame.file_name, "./");
 
-            if (is_native || is_stdlib) {
+            if (actual_is_native || is_stdlib) {
                 continue; // ...
             }
 
             auto cur_node = get_or_insert_node(builder->graph, frame_label, actual_is_native);
-
-            // jl_printf(JL_STDERR, " %s at %s:%d\n", frame_label.c_str(), frame.file_name.c_str(), frame.line_no);
 
             if (prev_frame_label == "") {
                 incr_or_add_alloc(cur_node, type_address);

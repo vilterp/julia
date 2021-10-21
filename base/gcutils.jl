@@ -132,7 +132,7 @@ function start_alloc_profile(skip_every::Int=0)
 end
 
 function stop_and_write_alloc_profile(io)
-    ccall(:jl_stop_alloc_profile, Cvoid, (Ptr{Cvoid},) io.handle)
+    ccall(:jl_stop_and_write_alloc_profile, Cvoid, (Ptr{Cvoid},), io.handle)
 end
 
 function enable_finalizers()

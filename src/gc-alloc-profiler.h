@@ -13,7 +13,7 @@ extern "C" {
 void _report_gc_started(void);
 void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd);
 JL_DLLEXPORT void jl_start_alloc_profile(int skip_every);
-JL_DLLEXPORT void jl_stop_alloc_profile(ios_t *stream);
+JL_DLLEXPORT void jl_stop_and_write_alloc_profile(ios_t *stream);
 
 void _record_allocated_value(jl_value_t *val);
 

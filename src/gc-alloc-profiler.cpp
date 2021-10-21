@@ -37,8 +37,12 @@ struct Alloc {
 };
 
 struct AllocProfile {
+    size_t skip_every;
     vector<Alloc> allocs;
     unordered_map<size_t, string> type_name_by_address;
+
+    size_t alloc_count;
+    size_t last_recorded_alloc;
 };
 
 struct AllocGraph {
@@ -404,9 +408,11 @@ ios_t *g_alloc_profile_out;
 
 // == exported interface ==
 
-JL_DLLEXPORT void jl_start_alloc_profile(ios_t *stream) {
+JL_DLLEXPORT void jl_start_alloc_profile(ios_t *stream, int skip_every) {
+    jl_printf(JL_STDERR, "skipping every %d\n", skip_every);
+
     g_alloc_profile_out = stream;
-    g_alloc_profile = new AllocProfile{};
+    g_alloc_profile = new AllocProfile{(size_t)skip_every};
 }
 
 JL_DLLEXPORT void jl_stop_alloc_profile() {
@@ -448,6 +454,13 @@ RawBacktrace get_stack() {
 }
 
 void _record_allocated_value(jl_value_t *val) {
+    g_alloc_profile->alloc_count++;
+    auto diff = g_alloc_profile->alloc_count - g_alloc_profile->last_recorded_alloc;
+    if (diff < g_alloc_profile->skip_every) {
+        return;
+    }
+    g_alloc_profile->last_recorded_alloc = g_alloc_profile->alloc_count;
+
     auto type = (jl_datatype_t*)jl_typeof(val);
     register_type_string(type);
 

@@ -357,48 +357,41 @@ void print_indent(ios_t *out, int level) {
 void alloc_graph_serialize(ios_t *out, AllocGraph *graph) {
     jl_printf(JL_STDERR, "serialize start\n");
 
-    ios_printf(out, "digraph {\n");
+    ios_printf(out, "==== functions\n");
+    ios_printf(out, "name,is_native\n"); // TODO: file path
     for (auto node : graph->nodes) {
-        auto color = node.second->is_native ? "darksalmon" : "thistle";
-        ios_printf(out, "  ");
-        print_str_escape_dot(out, node.first.c_str());
-        ios_printf(out, " [shape=box, fillcolor=%s, style=filled];\n", color);
+        print_str_escape_csv(out, node.first);
+        ios_printf(out, ",");
+        ios_printf(out, "%s", node.second->is_native ? "true" : "false");
+        ios_printf(out, "\n");
     }
-    for (auto type : graph->type_name_by_address) {
-        ios_printf(out, "  ");
-        print_str_escape_dot(out, type.second.c_str());
-        ios_printf(out, " [fillcolor=darkseagreen1, shape=box, style=filled];\n");
-    }
+
+    ios_printf(out, "==== calls\n");
+    ios_printf(out, "from,to,number\n");
     for (auto node : graph->nodes) {
         for (auto out_edge : node.second->calls_out) {
-            // ios_printf(
-            //     out, "%s,%s,%d\n",
-            //     node.first.c_str(), out_edge.first.c_str(), out_edge.second
-            // );
-            ios_printf(out, "  ");
-            print_str_escape_dot(out, node.first.c_str());
-            ios_printf(out, " -> ");
-            print_str_escape_dot(out, out_edge.first.c_str());
-            ios_printf(out, " [label=%d];\n", out_edge.second);
-        }
-        for (auto alloc_count : node.second->allocs_by_type_address) {
-            auto type_name = graph->type_name_by_address[alloc_count.first];
-            // ios_printf(out, "%s,", node.first.c_str());
-            // print_str_escape_csv(out, type_name.c_str());
-            // ios_printf(out, "%d\n", alloc_count.second);
-
-            ios_printf(out, "  ");
-            print_str_escape_dot(out, node.first.c_str());
-            ios_printf(out, " -> ");
-            print_str_escape_dot(out, type_name.c_str());
-            ios_printf(out, " [label=%d];\n", alloc_count.second);
+            print_str_escape_csv(out, node.first.c_str());
+            ios_printf(out, ",");
+            print_str_escape_csv(out, out_edge.first.c_str());
+            ios_printf(out, ",");
+            ios_printf(out, "%d", out_edge.second);
+            ios_printf(out, "\n");
         }
     }
-    ios_printf(out, "}\n");
-}
 
-void contract_graph(AllocGraph *graph) {
-    // TODO: ...
+    ios_printf(out, "==== allocations\n");
+    ios_printf(out, "from_func,to_type,number\n");
+    for (auto node : graph->nodes) {
+        for (auto alloc_count : node.second->allocs_by_type_address) {
+            auto type_name = graph->type_name_by_address[alloc_count.first];
+            print_str_escape_csv(out, node.first.c_str());
+            ios_printf(out, ",");
+            print_str_escape_csv(out, type_name.c_str());
+            ios_printf(out, ",");
+            ios_printf(out, "%d", alloc_count.second);
+            ios_printf(out, "\n");
+        }
+    }
 }
 
 // == global variables manipulated by callbacks ==
@@ -417,7 +410,6 @@ JL_DLLEXPORT void jl_start_alloc_profile(ios_t *stream, int skip_every) {
 
 JL_DLLEXPORT void jl_stop_alloc_profile() {
     auto graph = build_alloc_graph(g_alloc_profile);
-    contract_graph(graph);
     alloc_graph_serialize(g_alloc_profile_out, graph);
     ios_flush(g_alloc_profile_out);
 

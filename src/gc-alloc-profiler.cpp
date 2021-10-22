@@ -40,8 +40,9 @@ struct AllocProfile {
     size_t cache_hits;
     size_t cache_misses;
 
-    int alloc_counter;
-    int last_recorded_alloc;
+    size_t alloc_counter;
+    size_t last_recorded_alloc;
+    size_t allocs_recorded;
 };
 
 // == utility functions ==
@@ -311,6 +312,9 @@ void trie_serialize(ios_t *out, AllocProfile *profile, StackTrieNode *node, int 
 }
 
 void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
+    jl_printf(JL_STDERR, "serializing trie from %d allocs\n", profile->allocs_recorded);
+    jl_printf(JL_STDERR, "  frame cache hits: %d\n", profile->cache_hits);
+    jl_printf(JL_STDERR, "  frame cache misses: %d\n", profile->cache_misses);
     trie_serialize(out, profile, &profile->root, 0);
 }
 
@@ -356,6 +360,8 @@ void _record_allocated_value(jl_value_t *val) {
     if (diff < profile->skip_every) {
         return;
     }
+    profile->allocs_recorded++;
+    profile->last_recorded_alloc = profile->alloc_counter;
 
     auto type = (jl_datatype_t*)jl_typeof(val);
     register_type_string(type);

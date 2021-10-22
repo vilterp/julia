@@ -36,12 +36,24 @@ struct AllocProfile {
 
     StackTrieNode root;
     unordered_map<size_t, string> type_name_by_address;
+    unordered_map<string, vector<StackFrame>> frames_cache;
+    size_t cache_hits;
+    size_t cache_misses;
 
     int alloc_counter;
     int last_recorded_alloc;
 };
 
 // == utility functions ==
+
+string frame_as_string(jl_bt_element_t *entry, size_t entry_size) {
+    auto size_in_bytes = entry_size * sizeof(jl_bt_element_t);
+    char *buf = (char*)malloc(size_in_bytes);
+    for (int i=0; i < size_in_bytes; i++) {
+        buf[i] = ((char*)entry)[i];
+    }
+    return string(buf, size_in_bytes);
+}
 
 // https://stackoverflow.com/questions/874134/find-out-if-string-ends-with-another-string-in-c
 bool ends_with(string const &full_string, string const &ending) {
@@ -165,7 +177,29 @@ vector<StackFrame> get_native_frames(uintptr_t ip) JL_NOTSAFEPOINT {
     return out_frames;
 }
 
-vector<StackFrame> get_stack() {
+vector<StackFrame> get_frames(
+    AllocProfile *profile,
+    jl_bt_element_t *entry,
+    size_t entry_size,
+    bool is_native
+) {
+    string entry_str = frame_as_string(entry, entry_size);
+
+    auto maybe_frames = profile->frames_cache.find(entry_str);
+    if (maybe_frames == profile->frames_cache.end()) {
+        profile->cache_misses++;
+        auto frames = is_native
+            ? get_native_frames(entry[0].uintptr)
+            : get_julia_frames(entry);
+        profile->frames_cache[entry_str] = frames;
+        return frames;
+    } else {
+        profile->cache_hits++;
+        return maybe_frames->second;
+    }
+}
+
+vector<StackFrame> get_stack(AllocProfile *profile) {
     // TODO: don't allocate this every time
     jl_bt_element_t *bt_data = (jl_bt_element_t*) malloc(JL_MAX_BT_SIZE);
 
@@ -174,14 +208,15 @@ vector<StackFrame> get_stack() {
 
     vector<StackFrame> out;
 
-    for (int i = 0; i < bt_size; i += jl_bt_entry_size(bt_data + i)) {
+    int i = 0;
+    while (i < bt_size) {
         jl_bt_element_t *entry = bt_data + i;
+        auto entry_size = jl_bt_entry_size(entry);
+        i += entry_size;
         auto is_native = jl_bt_is_native(entry);;
 
         // TODO: cache frames by bt_element as string?
-        auto frames = is_native
-            ? get_native_frames(entry[0].uintptr)
-            : get_julia_frames(entry);
+        auto frames = get_frames(profile, entry, entry_size, is_native);
         
         for (auto frame : frames) {
             auto frame_label = frame.func_name;
@@ -326,7 +361,7 @@ void _record_allocated_value(jl_value_t *val) {
     register_type_string(type);
 
     // TODO: get stack, push into vector
-    auto stack = get_stack();
+    auto stack = get_stack(profile);
 
     trie_insert(&g_alloc_profile->root, stack, 0, (size_t) type);
 }

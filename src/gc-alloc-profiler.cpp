@@ -32,8 +32,13 @@ struct StackTrieNode {
 };
 
 struct AllocProfile {
+    int skip_every;
+
     StackTrieNode root;
     unordered_map<size_t, string> type_name_by_address;
+
+    int alloc_counter;
+    int last_recorded_alloc;
 };
 
 // == utility functions ==
@@ -276,21 +281,21 @@ void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
 
 // == global variables manipulated by callbacks ==
 
-AllocProfile *g_alloc_profile;
-ios_t *g_alloc_profile_out;
+AllocProfile *g_alloc_profile = nullptr;
+int g_alloc_profile_enabled = false;
 
 // == exported interface ==
 
-JL_DLLEXPORT void jl_start_alloc_profile(ios_t *stream) {
-    g_alloc_profile_out = stream;
-    g_alloc_profile = new AllocProfile{};
+JL_DLLEXPORT void jl_start_alloc_profile(int skip_every) {
+    g_alloc_profile_enabled = true;
+    g_alloc_profile = new AllocProfile{skip_every};
 }
 
-JL_DLLEXPORT void jl_stop_alloc_profile() {
-    alloc_profile_serialize(g_alloc_profile_out, g_alloc_profile);
-    ios_flush(g_alloc_profile_out);
+JL_DLLEXPORT void jl_stop_and_write_alloc_profile(ios_t *stream) {
+    alloc_profile_serialize(stream, g_alloc_profile);
+    ios_flush(stream);
     
-    g_alloc_profile_out = nullptr;
+    g_alloc_profile_enabled = false;
     
     // TODO: something to free the alloc profile?
     // I don't know how to C++
@@ -310,6 +315,13 @@ void register_type_string(jl_datatype_t *type) {
 }
 
 void _record_allocated_value(jl_value_t *val) {
+    auto profile = g_alloc_profile;
+    profile->alloc_counter++;
+    auto diff = profile->alloc_counter - profile->last_recorded_alloc;
+    if (diff < profile->skip_every) {
+        return;
+    }
+
     auto type = (jl_datatype_t*)jl_typeof(val);
     register_type_string(type);
 

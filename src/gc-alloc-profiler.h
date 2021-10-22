@@ -12,8 +12,8 @@ extern "C" {
 
 void _report_gc_started(void);
 void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd);
-JL_DLLEXPORT void jl_start_alloc_profile(ios_t *stream);
-JL_DLLEXPORT void jl_stop_alloc_profile();
+JL_DLLEXPORT void jl_start_alloc_profile(int skip_every);
+JL_DLLEXPORT void jl_stop_and_write_alloc_profile(ios_t *stream);
 
 void _record_allocated_value(jl_value_t *val);
 
@@ -21,10 +21,10 @@ void _record_allocated_value(jl_value_t *val);
 // functions to call from GC when alloc profiling is enabled
 // ---------------------------------------------------------------------
 
-extern ios_t *g_alloc_profile_out;
+extern int g_alloc_profile_enabled;
 
 static inline void record_allocated_value(jl_value_t *val) {
-    if (__unlikely(g_alloc_profile_out != 0)) {
+    if (__unlikely(g_alloc_profile_enabled)) {
         _record_allocated_value(val);
     }
 }

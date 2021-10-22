@@ -281,6 +281,9 @@ JL_DLLEXPORT void jl_start_alloc_profile(ios_t *stream) {
 }
 
 JL_DLLEXPORT void jl_stop_alloc_profile() {
+    alloc_profile_serialize(g_alloc_profile_out, g_alloc_profile);
+    ios_flush(g_alloc_profile_out);
+    
     g_alloc_profile_out = nullptr;
     
     // TODO: something to free the alloc profile?
@@ -322,9 +325,4 @@ void _report_gc_finished(uint64_t pause, uint64_t freed, uint64_t allocd) {
         "GC: pause %fms. collected %fMB. %lld allocs total\n",
         pause/1e6, freed/1e6, allocd
     );
-
-    if (g_alloc_profile_out != nullptr) {
-        alloc_profile_serialize(g_alloc_profile_out, g_alloc_profile);
-        ios_flush(g_alloc_profile_out);
-    }
 }

@@ -261,11 +261,8 @@ string stack_frame_to_string(StackFrame frame) {
 // === trie stuff ===
 
 // TODO: pass size as well
-void trie_insert(StackTrieNode *node, vector<StackFrame> path, size_t reverse_idx, size_t type_address) {
-    auto idx = path.size() - reverse_idx - 1;
-    // jl_printf(JL_STDERR, "length: %d, reverse_idx: %d, idx: %d\n", path.size(), reverse_idx, idx);
-    // jl_printf(JL_STDERR, "length: %d, idx: %d\n", reverse_idx, path.size(), idx);
-    if (reverse_idx == path.size()) {
+void trie_insert(StackTrieNode *node, vector<StackFrame> path, size_t foo_idx, size_t type_address) {
+    if (foo_idx == path.size()) {
         auto allocs = node->allocs_by_type_address.find(type_address);
         if (allocs == node->allocs_by_type_address.end()) {
             node->allocs_by_type_address[type_address] = 1;
@@ -275,7 +272,9 @@ void trie_insert(StackTrieNode *node, vector<StackFrame> path, size_t reverse_id
         return;
     }
     
-    auto frame = path[idx];
+    // we're going through the path from end to beginning
+    auto reverse_idx = path.size() - foo_idx - 1;
+    auto frame = path[reverse_idx];
     string child_str = stack_frame_to_string(frame);
     auto child = node->children.find(child_str);
     StackTrieNode *child_node;
@@ -285,7 +284,7 @@ void trie_insert(StackTrieNode *node, vector<StackFrame> path, size_t reverse_id
     } else {
         child_node = child->second;
     }
-    trie_insert(child_node, path, reverse_idx+1, type_address);
+    trie_insert(child_node, path, foo_idx+1, type_address);
 }
 
 void print_indent(ios_t *out, int level) {

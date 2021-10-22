@@ -261,8 +261,11 @@ string stack_frame_to_string(StackFrame frame) {
 // === trie stuff ===
 
 // TODO: pass size as well
-void trie_insert(StackTrieNode *node, vector<StackFrame> path, size_t idx, size_t type_address) {
-    if (idx == path.size()) {
+void trie_insert(StackTrieNode *node, vector<StackFrame> path, size_t reverse_idx, size_t type_address) {
+    auto idx = path.size() - reverse_idx - 1;
+    // jl_printf(JL_STDERR, "length: %d, reverse_idx: %d, idx: %d\n", path.size(), reverse_idx, idx);
+    // jl_printf(JL_STDERR, "length: %d, idx: %d\n", reverse_idx, path.size(), idx);
+    if (reverse_idx == path.size()) {
         auto allocs = node->allocs_by_type_address.find(type_address);
         if (allocs == node->allocs_by_type_address.end()) {
             node->allocs_by_type_address[type_address] = 1;
@@ -282,7 +285,7 @@ void trie_insert(StackTrieNode *node, vector<StackFrame> path, size_t idx, size_
     } else {
         child_node = child->second;
     }
-    trie_insert(child_node, path, idx+1, type_address);
+    trie_insert(child_node, path, reverse_idx+1, type_address);
 }
 
 void print_indent(ios_t *out, int level) {
@@ -369,6 +372,7 @@ void _record_allocated_value(jl_value_t *val) {
     // TODO: get stack, push into vector
     auto stack = get_stack(profile);
 
+    jl_printf(JL_STDERR, "====== inserting stack of length: %d; type %zu\n", stack.size(), (size_t)type);
     trie_insert(&g_alloc_profile->root, stack, 0, (size_t) type);
 }
 

@@ -27,6 +27,7 @@ struct Alloc {
 };
 
 struct StackTrieNode {
+    size_t hits;
     unordered_map<string, StackTrieNode*> children;
     unordered_map<size_t, size_t> allocs_by_type_address;
 };
@@ -42,7 +43,6 @@ struct AllocProfile {
 
     size_t alloc_counter;
     size_t last_recorded_alloc;
-    size_t allocs_recorded;
 };
 
 // == utility functions ==
@@ -262,6 +262,7 @@ string stack_frame_to_string(StackFrame frame) {
 
 // TODO: pass size as well
 void trie_insert(StackTrieNode *node, vector<StackFrame> path, size_t idx, size_t type_address) {
+    node->hits++;
     if (idx == path.size()) {
         auto allocs = node->allocs_by_type_address.find(type_address);
         if (allocs == node->allocs_by_type_address.end()) {
@@ -296,7 +297,7 @@ void print_indent(ios_t *out, int level) {
 void trie_serialize(ios_t *out, AllocProfile *profile, StackTrieNode *node, int level) {
     for (auto child : node->children) {
         print_indent(out, level);
-        ios_printf(out, "%s: [", child.first.c_str());
+        ios_printf(out, "%d: %s: [", child.second->hits, child.first.c_str());
         auto first = true;
         for (auto alloc_count : child.second->allocs_by_type_address) {
             if (first) {
@@ -314,7 +315,7 @@ void trie_serialize(ios_t *out, AllocProfile *profile, StackTrieNode *node, int 
 }
 
 void alloc_profile_serialize(ios_t *out, AllocProfile *profile) {
-    jl_printf(JL_STDERR, "serializing trie from %d allocs\n", profile->allocs_recorded);
+    jl_printf(JL_STDERR, "serializing trie from %d allocs\n", profile->root.hits);
     jl_printf(JL_STDERR, "  frame cache hits: %d\n", profile->cache_hits);
     jl_printf(JL_STDERR, "  frame cache misses: %d\n", profile->cache_misses);
     trie_serialize(out, profile, &profile->root, 0);
@@ -362,7 +363,6 @@ void _record_allocated_value(jl_value_t *val) {
     if (diff < profile->skip_every) {
         return;
     }
-    profile->allocs_recorded++;
     profile->last_recorded_alloc = profile->alloc_counter;
 
     auto type = (jl_datatype_t*)jl_typeof(val);

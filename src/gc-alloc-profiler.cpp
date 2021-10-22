@@ -253,12 +253,18 @@ void print_indent(ios_t *out, int level) {
 void trie_serialize(ios_t *out, AllocProfile *profile, StackTrieNode *node, int level) {
     for (auto child : node->children) {
         print_indent(out, level);
-        ios_printf(out, "%s: ", child.first.c_str());
+        ios_printf(out, "%s: [", child.first.c_str());
+        auto first = true;
         for (auto alloc_count : child.second->allocs_by_type_address) {
+            if (first) {
+                first = false;
+            } else {
+                ios_printf(out, ", ");
+            }
             auto type_str = profile->type_name_by_address[alloc_count.first];
-            ios_printf(out, "%s: %d, ", type_str.c_str(), alloc_count.second);
+            ios_printf(out, "%s: %d", type_str.c_str(), alloc_count.second);
         }
-        ios_printf(out, "\n");
+        ios_printf(out, "]\n");
         // TODO: print the types as well
         trie_serialize(out, profile, child.second, level+1);
     }

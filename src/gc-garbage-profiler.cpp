@@ -59,7 +59,7 @@ string _type_as_string(jl_datatype_t *type) {
 // == global variables manipulated by callbacks ==
 // TODO: wrap these up into a struct
 
-int UNKNOWN_ADDRESS = 0;
+size_t UNKNOWN_ADDRESS = -1;
 
 ios_t *g_gc_log_stream = nullptr;
 
@@ -181,7 +181,8 @@ void _record_freed_value(jl_taggedvalue_t *tagged_val) {
     auto value_address = (size_t)val;
     auto type_address = g_type_address_by_value_address.find(value_address);
     if (type_address == g_type_address_by_value_address.end()) {
-        return; // TODO: warn
+        g_frees_by_type_address[UNKNOWN_ADDRESS]++;
+        return;
     }
     auto frees = g_frees_by_type_address.find(type_address->second);
 

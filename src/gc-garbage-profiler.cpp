@@ -59,6 +59,8 @@ string _type_as_string(jl_datatype_t *type) {
 // == global variables manipulated by callbacks ==
 // TODO: wrap these up into a struct
 
+int UNKNOWN_ADDRESS = 0;
+
 ios_t *g_gc_log_stream = nullptr;
 
 ios_t *g_garbage_profile_stream = nullptr;
@@ -83,6 +85,7 @@ JL_DLLEXPORT void jl_stop_logging() {
 JL_DLLEXPORT void jl_start_garbage_profile(ios_t *stream) {
     g_garbage_profile_stream = stream;
     ios_printf(g_garbage_profile_stream, "gc_epoch,type,num_freed\n");
+    g_type_name_by_address[UNKNOWN_ADDRESS] = "<unknown; probably from gc_pool_alloc>";
 }
 
 JL_DLLEXPORT void jl_stop_garbage_profile() {

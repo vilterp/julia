@@ -116,6 +116,12 @@ function take_heap_snapshot(io)
     ccall(:jl_gc_take_heap_snapshot, Cvoid, (Ptr{Cvoid},), (io::IOStream).handle::Ptr{Cvoid})
 end
 
+# function take_heap_snapshot(path::String)
+#     open(path, "w") do f
+#         take_heap_snapshot(f)
+#     end
+# end
+
 """
     GC.enable_finalizers(on::Bool)
 

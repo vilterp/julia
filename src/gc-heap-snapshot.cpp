@@ -224,16 +224,7 @@ size_t record_node_to_gc_snapshot(jl_value_t *a) JL_NOTSAFEPOINT {
                 ? jl_array_nbytes((jl_array_t*)a)
                 : (size_t)jl_datatype_size(type);
 
-            // print full type
-            // TODO(PR): Is it possible to use a variable size string here, instead??
-            ios_t str_;
-            ios_mem(&str_, 1048576);  // 1 MiB
-            JL_STREAM* str = (JL_STREAM*)&str_;
-
-            jl_static_show(str, (jl_value_t*)type);
-
-            name = string((const char*)str_.buf, str_.size);
-            ios_close(&str_);
+            name = jl_symbol_name(type->name->name);
         }
     }
 
@@ -295,6 +286,10 @@ bool _fieldpath_for_slot_helper(
             out.push_back(inlineallocd_field_type_t(objtype, field_name));
             return true;
         }
+        // if ((size_t) field_type < 1e8) {
+        //     jl_printf(JL_STDERR, "invalid field type\n");
+        //     continue;
+        // }
         // If the field is an inline-allocated struct
         if (jl_stored_inline((jl_value_t*)field_type)) {
             bool found = _fieldpath_for_slot_helper(out, field_type, fieldaddr, slot);

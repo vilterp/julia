@@ -2682,7 +2682,7 @@ mark: {
             }
 #ifdef COPY_STACKS
             void *stkbuf = ta->stkbuf;
-            if (stkbuf && ta->copy_stack)
+            if (stkbuf && ta->copy_stack) {
                 gc_setmark_buf_(ptls, stkbuf, bits, ta->bufsz);
                 // TODO: attribute size of stack
                 // TODO: edge to stack data

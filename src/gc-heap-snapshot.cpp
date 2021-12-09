@@ -420,25 +420,22 @@ void _gc_heap_snapshot_record_module_edge(jl_module_t *from, jl_value_t *to, cha
                     g_snapshot->names.find_or_create_string_id(name));
 }
 
-void _gc_heap_snapshot_record_object_edge(jl_value_t *from, jl_value_t *to, void* slot) JL_NOTSAFEPOINT {
+void _gc_heap_snapshot_record_object_edge(jl_value_t *from, jl_value_t *to, size_t field_index) JL_NOTSAFEPOINT {
     jl_datatype_t *type = (jl_datatype_t*)jl_typeof(from);
 
-    auto field_paths = _fieldpath_for_slot(from, slot);
-    // Build the new field name by joining the strings, and/or use the struct + field names
-    // to create a bunch of edges + nodes
-    // (iterate the vector in reverse - the last element is the first path)
-    // TODO: Prefer to create intermediate edges and nodes instead of a combined string path.
-    string path;
-    for (auto it = field_paths.rbegin(); it != field_paths.rend(); ++it) {
-        // ...
-        path += it->second;
-        if ( it + 1 != field_paths.rend() ) {
-            path += ".";
-        }
+    if (field_index < 0 || jl_datatype_nfields(type) <= field_index) {
+        // TODO: We're getting -1 in some cases
+        //jl_printf(JL_STDERR, "WARNING - incorrect field index (%zu) for type\n", field_index);
+        //jl_(type);
+        _record_gc_edge("object", "element", from, to, field_index);
+        return;
     }
+    jl_svec_t *field_names = jl_field_names(type);
+    jl_sym_t *name = (jl_sym_t*)jl_svecref(field_names, field_index);
+    const char *field_name = jl_symbol_name(name);
 
     _record_gc_edge("object", "property", from, to,
-                    g_snapshot->names.find_or_create_string_id(path));
+                    g_snapshot->names.find_or_create_string_id(field_name));
 }
 
 void _gc_heap_snapshot_record_internal_edge(jl_value_t *from, jl_value_t *to) JL_NOTSAFEPOINT {

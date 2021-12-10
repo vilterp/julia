@@ -23,11 +23,18 @@ struct RawAlloc {
     RawBacktrace backtrace;
     size_t size;
 };
+struct AllocInfo {
+    jl_datatype_t *type_address;
+    size_t stack_depth;
+    size_t bytes;
+};
 
 struct AllocProfile {
     int skip_every;
 
-    vector<RawAlloc> allocs;
+    vector<jl_bt_element_t> backtraces;
+    vector<AllocInfo> alloc_infos;
+    //vector<RawAlloc> allocs;
     unordered_map<size_t, size_t> type_address_by_value_address;
     unordered_map<size_t, size_t> frees_by_type_address;
 
@@ -42,16 +49,18 @@ int g_alloc_profile_enabled = false;
 
 // === stack stuff ===
 
-RawBacktrace get_raw_backtrace() {
-    jl_bt_element_t *bt_data = (jl_bt_element_t*) malloc(JL_MAX_BT_SIZE);
+RawBacktrace get_raw_backtrace(vector<jl_bt_element_t> &backtraces) {
+    //jl_bt_element_t *bt_data = (jl_bt_element_t*) malloc(JL_MAX_BT_SIZE);
+    static jl_bt_element_t bt_data[JL_MAX_BT_SIZE];
 
     // TODO: tune the number of frames that are skipped
     size_t bt_size = rec_backtrace(bt_data, JL_MAX_BT_SIZE, 1);
 
-    return RawBacktrace{
-        bt_data,
-        bt_size
-    };
+    for (int i = 0; i < bt_size; ++i) {
+        backtraces.push_back(bt_data[i]);
+    }
+
+    return bt_size;
 }
 
 // == exported interface ==
@@ -70,7 +79,7 @@ JL_DLLEXPORT struct RawAllocResults jl_stop_alloc_profile() {
         g_alloc_profile.allocs.data(),
         g_alloc_profile.allocs.size()
     };
-    
+
     // package up frees
     results.num_frees = g_alloc_profile.frees_by_type_address.size();
     results.frees = (FreeInfo*) malloc(sizeof(FreeInfo) * results.num_frees);

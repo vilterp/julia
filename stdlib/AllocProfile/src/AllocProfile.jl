@@ -88,7 +88,6 @@ end
 
 function decode_alloc(cache::BacktraceCache, raw_alloc::RawAlloc)::Alloc
     bt, bt2 = decode_backtrace(raw_alloc.backtrace.data, raw_alloc.backtrace.size)
-    # @show bt2
     Alloc(
         load_type(raw_alloc.type),
         stacktrace_memoized(cache, _reformat_bt(bt, bt2)),

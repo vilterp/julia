@@ -70,8 +70,24 @@ function load_type(ptr::Ptr{Type})::Type
     return unsafe_pointer_to_objref(ptr)
 end
 
+function decode_backtrace(bt_data::Ptr, bt_size)
+    bt = Ref{Array{Any}}()
+    bt2 = Ref{Array{Any}}()
+
+    ccall(
+        :jl_decode_backtrace,
+        Cvoid,
+        (Ptr{Csize_t}, Csize_t, Ref{Array{Any}}, Ref{Array{Any}}),
+        bt_data,
+        bt_size,
+        bt,
+        bt2
+    )
+    return bt, bt2
+end
+
 function decode_alloc(cache::BacktraceCache, raw_alloc::RawAlloc)::Alloc
-    back
+    
     Alloc(
         load_type(raw_alloc.type),
         stacktrace_memoized(cache, _reformat_bt(raw_alloc.backtrace)),

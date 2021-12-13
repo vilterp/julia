@@ -292,7 +292,7 @@ JL_DLLEXPORT jl_value_t *jl_backtrace_from_here(int returnsp, int skip)
     return bt;
 }
 
-static void decode_backtrace(jl_bt_element_t *bt_data, size_t bt_size,
+JL_DLLEXPORT void jl_decode_backtrace(jl_bt_element_t *bt_data, size_t bt_size,
                              jl_array_t **btout JL_REQUIRE_ROOTED_SLOT,
                              jl_array_t **bt2out JL_REQUIRE_ROOTED_SLOT)
 {
@@ -330,7 +330,7 @@ JL_DLLEXPORT jl_value_t *jl_get_backtrace(void)
     }
     jl_array_t *bt = NULL, *bt2 = NULL;
     JL_GC_PUSH2(&bt, &bt2);
-    decode_backtrace(bt_data, bt_size, &bt, &bt2);
+    jl_decode_backtrace(bt_data, bt_size, &bt, &bt2);
     jl_svec_t *pair = jl_svec2(bt, bt2);
     JL_GC_POP();
     return (jl_value_t*)pair;
@@ -359,7 +359,7 @@ JL_DLLEXPORT jl_value_t *jl_get_excstack(jl_task_t* task, int include_bt, int ma
     while (itr > 0 && i < max_entries) {
         jl_array_ptr_1d_push(stack, jl_excstack_exception(excstack, itr));
         if (include_bt) {
-            decode_backtrace(jl_excstack_bt_data(excstack, itr),
+            jl_decode_backtrace(jl_excstack_bt_data(excstack, itr),
                              jl_excstack_bt_size(excstack, itr),
                              &bt, &bt2);
             jl_array_ptr_1d_push(stack, (jl_value_t*)bt);

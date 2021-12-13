@@ -5,16 +5,10 @@ using Base: InterpreterIP
 
 # raw results
 
-# matches RawBacktrace on the C side
-struct RawBacktrace
-    data::Ptr{Csize_t} # in C: *jl_bt_element_t
-    size::Csize_t
-end
-
 # matches RawAlloc on the C side
 struct RawAlloc
     type::Ptr{Type}
-    backtrace::RawBacktrace
+    backtrace::Core.SimpleVector
     size::Csize_t
 end
 
@@ -43,9 +37,10 @@ end
 
 function stop()
     raw_results = ccall(:jl_stop_alloc_profile, RawAllocResults, ())
-    decoded_results = GC.@preserve raw_results decode(raw_results)
-    ccall(:jl_free_alloc_profile, Cvoid, ())
-    return decoded_results
+    # decoded_results = GC.@preserve raw_results decode(raw_results)
+    # ccall(:jl_free_alloc_profile, Cvoid, ())
+    # return decoded_results
+    return raw_results
 end
 
 # decoded results
@@ -76,6 +71,7 @@ function load_type(ptr::Ptr{Type})::Type
 end
 
 function decode_alloc(cache::BacktraceCache, raw_alloc::RawAlloc)::Alloc
+    back
     Alloc(
         load_type(raw_alloc.type),
         stacktrace_memoized(cache, _reformat_bt(raw_alloc.backtrace)),
@@ -123,50 +119,6 @@ function stacktrace_memoized(
         end
     end
     return stack
-end
-
-# convert an array of raw backtrace entries to array of usable objects
-# (either native pointers, InterpreterIP objects, or AllocationInfo objects)
-function _reformat_bt(bt::RawBacktrace)::Vector{BacktraceEntry}
-    # NOTE: Ptr{Cvoid} is always part of the output container type,
-    #       as end-of-block markers are encoded as a NULL pointer
-    # TODO: use Nothing/nothing for that?
-    ret = Vector{BacktraceEntry}()
-    i = 1
-    while i <= bt.size
-        ip = unsafe_load(bt.data, i)
-
-        # native frame
-        if UInt(ip) != (-1 % UInt)
-            # See also jl_bt_is_native
-            push!(ret, convert(Ptr{Cvoid}, ip))
-            i += 1
-            continue
-        end
-
-        # Extended backtrace entry
-        entry_metadata = reinterpret(UInt, unsafe_load(bt.data, i+1))
-        njlvalues =  entry_metadata & 0x7
-        nuintvals = (entry_metadata >> 3) & 0x7
-        tag       = (entry_metadata >> 6) & 0xf
-        header    =  entry_metadata >> 10
-
-        if tag == 1 # JL_BT_INTERP_FRAME_TAG
-            code = unsafe_pointer_to_objref(convert(Ptr{Any}, unsafe_load(bt.data, i+2)))
-            mod = if njlvalues == 2
-                unsafe_pointer_to_objref(convert(Ptr{Any}, unsafe_load(bt.data, i+3)))
-            else
-                nothing
-            end
-            push!(ret, InterpreterIP(code, header, mod))
-        else
-            # Tags we don't know about are an error
-            throw(ArgumentError("Unexpected extended backtrace entry tag $tag at bt[$i]"))
-        end
-        # See jl_bt_entry_size
-        i += Int(2 + njlvalues + nuintvals)
-    end
-    return ret
 end
 
 end

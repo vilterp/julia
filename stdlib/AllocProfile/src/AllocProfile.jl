@@ -42,10 +42,10 @@ end
 
 function stop()
     raw_results = ccall(:jl_stop_alloc_profile, RawAllocResults, ())
-    # decoded_results = GC.@preserve raw_results decode(raw_results)
-    # ccall(:jl_free_alloc_profile, Cvoid, ())
-    # return decoded_results
-    return raw_results
+    decoded_results = decode(raw_results)
+    ccall(:jl_free_alloc_profile, Cvoid, ())
+    return decoded_results
+    # return raw_results
 end
 
 # decoded results
@@ -65,7 +65,7 @@ const BacktraceEntry = Union{Ptr{Cvoid}, InterpreterIP}
 const BacktraceCache = Dict{BacktraceEntry,Vector{StackFrame}}
 
 # loading anything below this seems to segfault
-# TODO: find out what's going on
+# TODO: use filter out special types before we get here
 TYPE_PTR_THRESHOLD = 0x0000000100000000
 
 function load_type(ptr::Ptr{Type})::Type

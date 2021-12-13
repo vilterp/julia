@@ -1,14 +1,19 @@
 module AllocProfile
 
 using Base.StackTraces: StackTrace, StackFrame, lookup
-using Base: InterpreterIP
+using Base: InterpreterIP, _reformat_bt
 
 # raw results
+
+struct RawBacktrace
+    data::Ptr{Csize_t} # in C: *jl_bt_element_t
+    size::Csize_t
+end
 
 # matches RawAlloc on the C side
 struct RawAlloc
     type::Ptr{Type}
-    backtrace::Core.SimpleVector
+    backtrace::RawBacktrace
     size::Csize_t
 end
 
@@ -71,26 +76,22 @@ function load_type(ptr::Ptr{Type})::Type
 end
 
 function decode_backtrace(bt_data::Ptr, bt_size)
-    bt = Ref{Array{Any}}()
-    bt2 = Ref{Array{Any}}()
-
-    ccall(
+    bt, bt2 = ccall(
         :jl_decode_backtrace,
-        Cvoid,
-        (Ptr{Csize_t}, Csize_t, Ref{Array{Any}}, Ref{Array{Any}}),
+        Core.SimpleVector,
+        (Ptr{Csize_t}, Csize_t),
         bt_data,
         bt_size,
-        bt,
-        bt2
     )
     return bt, bt2
 end
 
 function decode_alloc(cache::BacktraceCache, raw_alloc::RawAlloc)::Alloc
-    
+    bt, bt2 = decode_backtrace(raw_alloc.backtrace.data, raw_alloc.backtrace.size)
+    # @show bt2
     Alloc(
         load_type(raw_alloc.type),
-        stacktrace_memoized(cache, _reformat_bt(raw_alloc.backtrace)),
+        stacktrace_memoized(cache, _reformat_bt(bt, bt2)),
         UInt(raw_alloc.size)
     )
 end

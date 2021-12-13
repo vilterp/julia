@@ -13,21 +13,16 @@ using std::unordered_map;
 using std::string;
 using std::vector;
 
-struct RawBacktrace {
-    jl_bt_element_t *data;
-    size_t size;
-};
-
 struct RawAlloc {
     jl_datatype_t *type_address;
-    RawBacktrace backtrace;
+    jl_value_t *backtrace; // SimpleVector
     size_t size;
 };
 
 struct AllocProfile {
     int skip_every;
 
-    vector<RawAlloc> allocs;
+    vector<RawAlloc> allocs; // TODO: Julia-managed array?
     unordered_map<size_t, size_t> type_address_by_value_address;
     unordered_map<size_t, size_t> frees_by_type_address;
 
@@ -39,20 +34,6 @@ struct AllocProfile {
 
 AllocProfile g_alloc_profile;
 int g_alloc_profile_enabled = false;
-
-// === stack stuff ===
-
-RawBacktrace get_raw_backtrace() {
-    jl_bt_element_t *bt_data = (jl_bt_element_t*) malloc(JL_MAX_BT_SIZE);
-
-    // TODO: tune the number of frames that are skipped
-    size_t bt_size = rec_backtrace(bt_data, JL_MAX_BT_SIZE, 1);
-
-    return RawBacktrace{
-        bt_data,
-        bt_size
-    };
-}
 
 // == exported interface ==
 
@@ -89,9 +70,6 @@ JL_DLLEXPORT void jl_free_alloc_profile() {
     g_alloc_profile.frees_by_type_address.clear();
     g_alloc_profile.type_address_by_value_address.clear();
     g_alloc_profile.alloc_counter = 0;
-    for (auto alloc : g_alloc_profile.allocs) {
-        free(alloc.backtrace.data);
-    }
     g_alloc_profile.allocs.clear();
 }
 
@@ -112,9 +90,14 @@ void _record_allocated_value(jl_value_t *val, size_t size) JL_NOTSAFEPOINT {
 
     profile.type_address_by_value_address[(size_t)val] = (size_t)type;
 
+    // disable allocation while we allocate a stack trace
+    g_alloc_profile_enabled = false;
+    auto backtrace = jl_backtrace_from_here(0, 1);
+    g_alloc_profile_enabled = true;
+
     profile.allocs.emplace_back(RawAlloc{
         type,
-        get_raw_backtrace(),
+        backtrace,
         size
     });
 }

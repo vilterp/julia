@@ -11,8 +11,11 @@ using AllocProfile
     # test the allocations during compilation
     using Base64
 
-    raw_results = AllocProfile.stop()
-    results = AllocProfile.decode(raw_results)
+    results = AllocProfile.stop()
 
     @test length(results.allocs) > 0
+    first_alloc = results.allocs[1]
+    @test first_alloc.size > 0
+    @test length(first_alloc.stacktrace) > 0
+    @test length(string(first_alloc.type)) > 0
 end

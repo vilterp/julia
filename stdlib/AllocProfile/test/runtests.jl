@@ -13,6 +13,9 @@ using AllocProfile
 
     AllocProfile.stop()
 
+    raw_results = AllocProfile.g_profile[]
+    results = AllocProfile.decode(raw_results)
+
     @test length(results.allocs) > 0
     first_alloc = results.allocs[1]
     @test first_alloc.size > 0

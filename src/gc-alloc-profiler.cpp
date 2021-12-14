@@ -15,6 +15,7 @@ using std::vector;
 
 // == global variables manipulated by callbacks ==
 
+// TODO: make these threadsafe
 int g_alloc_profile_enabled = false;
 RawAllocProfile *g_alloc_profile = nullptr;
 
@@ -69,7 +70,10 @@ void _record_allocated_value(jl_value_t *val, size_t size) JL_NOTSAFEPOINT {
     // profile->type_address_by_value_address[(size_t)val] = (size_t)type;
 
     auto bytes_allocated = 5; // TODO: where were we getting this from?
+
+    g_alloc_profile_enabled = false;
     push_raw_alloc(profile, type_tag, size);
+    g_alloc_profile_enabled = true;
 }
 
 void _record_freed_value(jl_taggedvalue_t *tagged_val) JL_NOTSAFEPOINT {

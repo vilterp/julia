@@ -13,7 +13,10 @@ using Base: InterpreterIP, _reformat_bt
 
 # matches RawAllocResults on the C side
 struct RawAllocProfile
-    allocs::Vector{Core.SimpleVector} # (bt1, bt2, type_tag, bytes_allocated)
+    alloc_types::Vector{Csize_t}
+    alloc_sizes::Vector{Csize_t}
+    alloc_bts::Vector{Vector{Ptr{Cvoid}}}
+    alloc_bt2s::Vector{Vector{Union{Base.InterpreterIP,Core.Compiler.InterpreterIP}}}
 
     # sampling parameter
     skip_every::Csize_t
@@ -27,7 +30,10 @@ struct RawAllocProfile
 
     function RawAllocResults(skip_every::Int)
         return new(
-            Vector{RawAlloc}(),
+            alloc_types::Vector{Csize_t}(),
+            alloc_sizes::Vector{Csize_t}(),
+            alloc_bts::Vector{Vector{Ptr{Cvoid}}}(),
+            alloc_bt2s::Vector{Vector{Union{Base.InterpreterIP,Core.Compiler.InterpreterIP}}}(),
             skip_every,
             alloc_counter,
             last_recorded_alloc

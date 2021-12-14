@@ -20,7 +20,7 @@ RawAllocProfile *g_alloc_profile = nullptr;
 
 // === stack stuff ===
 
-jl_value_t *get_raw_alloc(size_t type_tag, size_t bytes_allocated) {
+void push_raw_alloc(RawAllocProfile *profile, size_t type_tag, size_t bytes_allocated) {
     jl_bt_element_t bt_data[JL_MAX_BT_SIZE];
 
     // TODO: tune the number of frames that are skipped
@@ -31,7 +31,10 @@ jl_value_t *get_raw_alloc(size_t type_tag, size_t bytes_allocated) {
     decode_backtrace(bt_data, bt_size, &bt, &bt2);
     JL_GC_POP();
 
-    return jl_svec(4, type_tag, bytes_allocated, bt, bt2);
+    // jl_array_ptr_1d_push(profile->alloc_types, type_tag);
+    // jl_array_ptr_1d_push(profile->alloc_sizes, bytes_allocated);
+    jl_array_ptr_1d_push(profile->alloc_bts, (jl_value_t *)bt);
+    jl_array_ptr_1d_push(profile->alloc_bt2s, (jl_value_t *)bt2);
 }
 
 // == exported interface ==
@@ -65,9 +68,8 @@ void _record_allocated_value(jl_value_t *val, size_t size) JL_NOTSAFEPOINT {
 
     // profile->type_address_by_value_address[(size_t)val] = (size_t)type;
 
-    auto size = 5; // TODO: where were we getting this from?
-    auto alloc = get_raw_alloc(type_tag, size);
-    jl_array_ptr_1d_push(profile->allocs, alloc);
+    auto bytes_allocated = 5; // TODO: where were we getting this from?
+    push_raw_alloc(profile, type_tag, size);
 }
 
 void _record_freed_value(jl_taggedvalue_t *tagged_val) JL_NOTSAFEPOINT {

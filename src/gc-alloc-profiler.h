@@ -10,23 +10,19 @@
 extern "C" {
 #endif
 
-// struct RawAlloc {
-//     size_t type_tag;
-//     size_t bytes_allocated;
-//     jl_array_t *bt;
-//     jl_array_t *bt2;
-// };
-
 // matches RawAllocProfile on the Julia side
 struct RawAllocProfile {
-    jl_array_t *allocs;
+    jl_array_t *alloc_types;
+    jl_array_t *alloc_sizes;
+    jl_array_t *alloc_bts;
+    jl_array_t *alloc_bt2s;
 
     // unordered_map<size_t, size_t> type_address_by_value_address;
     // unordered_map<size_t, size_t> frees_by_type_address;
 
-    int skip_every;
-    int alloc_counter;
-    int last_recorded_alloc;
+    size_t skip_every;
+    size_t alloc_counter;
+    size_t last_recorded_alloc;
 };
 
 // TODO(PR): Is this correct? Are these JL_NOTSAFEPOINT?

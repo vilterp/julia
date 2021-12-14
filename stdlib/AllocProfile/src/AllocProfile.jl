@@ -45,7 +45,6 @@ function stop()
     decoded_results = decode(raw_results)
     ccall(:jl_free_alloc_profile, Cvoid, ())
     return decoded_results
-    # return raw_results
 end
 
 # decoded results
@@ -59,6 +58,10 @@ end
 struct AllocResults
     allocs::Vector{Alloc}
     frees::Dict{Type,UInt}
+end
+
+function Base.show(io::IO, ::AllocResults)
+    print(io, "AllocResults")
 end
 
 const BacktraceEntry = Union{Ptr{Cvoid}, InterpreterIP}

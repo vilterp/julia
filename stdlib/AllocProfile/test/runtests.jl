@@ -11,7 +11,7 @@ using AllocProfile
     # test the allocations during compilation
     using Base64
 
-    results = AllocProfile.stop()
+    AllocProfile.stop()
 
     @test length(results.allocs) > 0
     first_alloc = results.allocs[1]

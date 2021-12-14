@@ -28,28 +28,28 @@ struct RawAllocProfile
     # frees_by_type::Dict{Type,UInt}
     # type_address_by_value_address::Dict{}
 
-    function RawAllocResults(skip_every::Int)
+    function RawAllocProfile(skip_every::Int)
         return new(
-            alloc_types::Vector{Csize_t}(),
-            alloc_sizes::Vector{Csize_t}(),
-            alloc_bts::Vector{Vector{Ptr{Cvoid}}}(),
-            alloc_bt2s::Vector{Vector{Union{Base.InterpreterIP,Core.Compiler.InterpreterIP}}}(),
+            Vector{Csize_t}(),
+            Vector{Csize_t}(),
+            Vector{Vector{Ptr{Cvoid}}}(),
+            Vector{Vector{Union{Base.InterpreterIP,Core.Compiler.InterpreterIP}}}(),
             skip_every,
-            alloc_counter,
-            last_recorded_alloc
+            0,
+            0
         )
     end
 end
 
 # pass this in, push to it
-const g_profile = Ref{RawAllocResults}()
+const g_profile = Ref{RawAllocProfile}()
 
 function start(skip_every::Int=0)
-    g_profile[] = RawAllocResults(skip_every)
+    g_profile[] = RawAllocProfile(skip_every)
     ccall(
         :jl_start_alloc_profile,
         Cvoid,
-        (Cint, Ref{RawAllocResults}),
+        (Cint, Ref{RawAllocProfile}),
         skip_every,
         g_profile
     )
@@ -92,45 +92,45 @@ function load_type(ptr::Ptr{Type})::Type
     return unsafe_pointer_to_objref(ptr)
 end
 
-function decode_backtrace(bt_data::Ptr, bt_size)
-    bt, bt2 = ccall(
-        :jl_decode_backtrace,
-        Core.SimpleVector,
-        (Ptr{Csize_t}, Csize_t),
-        bt_data,
-        bt_size,
-    )
-    return bt, bt2
-end
+# function decode_backtrace(bt_data::Ptr, bt_size)
+#     bt, bt2 = ccall(
+#         :jl_decode_backtrace,
+#         Core.SimpleVector,
+#         (Ptr{Csize_t}, Csize_t),
+#         bt_data,
+#         bt_size,
+#     )
+#     return bt, bt2
+# end
 
-function decode_alloc(cache::BacktraceCache, raw_alloc::RawAlloc)::Alloc
-    bt, bt2 = decode_backtrace(raw_alloc.backtrace.data, raw_alloc.backtrace.size)
-    Alloc(
-        load_type(raw_alloc.type),
-        stacktrace_memoized(cache, _reformat_bt(bt, bt2)),
-        UInt(raw_alloc.size)
-    )
-end
+# function decode_alloc(cache::BacktraceCache, raw_alloc::RawAlloc)::Alloc
+#     bt, bt2 = decode_backtrace(raw_alloc.backtrace.data, raw_alloc.backtrace.size)
+#     Alloc(
+#         load_type(raw_alloc.type),
+#         stacktrace_memoized(cache, _reformat_bt(bt, bt2)),
+#         UInt(raw_alloc.size)
+#     )
+# end
 
-function decode(raw_results::RawAllocResults)::AllocResults
-    cache = BacktraceCache()
-    allocs = [
-        decode_alloc(cache, unsafe_load(raw_results.allocs, i))
-        for i in 1:raw_results.num_allocs
-    ]
+# function decode(raw_results::RawAllocResults)::AllocResults
+#     cache = BacktraceCache()
+#     allocs = [
+#         decode_alloc(cache, unsafe_load(raw_results.allocs, i))
+#         for i in 1:raw_results.num_allocs
+#     ]
 
-    frees = Dict{Type,UInt}()
-    for i in 1:raw_results.num_frees
-        free = unsafe_load(raw_results.frees, i)
-        type = load_type(free.type)
-        frees[type] = free.count
-    end
+#     frees = Dict{Type,UInt}()
+#     for i in 1:raw_results.num_frees
+#         free = unsafe_load(raw_results.frees, i)
+#         type = load_type(free.type)
+#         frees[type] = free.count
+#     end
     
-    return AllocResults(
-        allocs,
-        frees
-    )
-end
+#     return AllocResults(
+#         allocs,
+#         frees
+#     )
+# end
 
 function stacktrace_memoized(
     cache::BacktraceCache,

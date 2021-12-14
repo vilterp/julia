@@ -20,7 +20,7 @@ RawAllocProfile *g_alloc_profile = nullptr;
 
 // === stack stuff ===
 
-void push_raw_alloc(RawAllocProfile *profile, size_t type_tag, size_t bytes_allocated) {
+void push_raw_alloc(struct RawAllocProfile *profile, size_t type_tag, size_t bytes_allocated) {
     jl_bt_element_t bt_data[JL_MAX_BT_SIZE];
 
     // TODO: tune the number of frames that are skipped
@@ -39,7 +39,7 @@ void push_raw_alloc(RawAllocProfile *profile, size_t type_tag, size_t bytes_allo
 
 // == exported interface ==
 
-JL_DLLEXPORT void jl_start_alloc_profile(int skip_every, RawAllocProfile *profile) {
+JL_DLLEXPORT void jl_start_alloc_profile(int skip_every, struct RawAllocProfile *profile) {
     g_alloc_profile_enabled = true;
     g_alloc_profile = profile;
 }

@@ -8,7 +8,7 @@ struct RawAllocProfile
     alloc_types::Vector{Csize_t}
     alloc_sizes::Vector{Csize_t}
     alloc_bts::Vector{Vector{Ptr{Cvoid}}}
-    alloc_bt2s::Vector{Vector{Union{Base.InterpreterIP,Core.Compiler.InterpreterIP}}}
+    alloc_bt2s::Vector{Vector{Union{Base.CodeInfo,Module,Base.InterpreterIP,Core.Compiler.InterpreterIP}}}
 
     # sampling parameter
     skip_every::Csize_t
@@ -68,6 +68,7 @@ end
 struct AllocResults
     allocs::Vector{Alloc}
     frees::Dict{Type,UInt}
+    bt2_length::Int
 end
 
 function Base.show(io::IO, ::AllocResults)
@@ -101,7 +102,7 @@ function decode_alloc(
     )
 end
 
-function _reformat_bt_custom(bt::Array{Ptr{Cvoid},1})::Vector{Union{InterpreterIP,Ptr{Cvoid}}}
+function _reformat_bt_custom(bt::Array{Ptr{Cvoid},1}, bt2::Vector{Union{CodeInfo,Module,Base.InterpreterIP,Core.Compiler.InterpreterIP}})
     ret = Vector{Union{InterpreterIP,Ptr{Cvoid}}}()
     i, j = 1, 1
     while i <= length(bt)
@@ -118,14 +119,14 @@ function _reformat_bt_custom(bt::Array{Ptr{Cvoid},1})::Vector{Union{InterpreterI
         nuintvals = (entry_metadata >> 3) & 0x7
         tag       = (entry_metadata >> 6) & 0xf
         header    =  entry_metadata >> 10
-        # if tag == 1 # JL_BT_INTERP_FRAME_TAG
-        #     code = bt2[j]::Union{CodeInfo,Core.MethodInstance,Nothing}
-        #     mod = njlvalues == 2 ? bt2[j+1]::Union{Module,Nothing} : nothing
-        #     push!(ret, InterpreterIP(code, header, mod))
-        # else
-        #     # Tags we don't know about are an error
-        #     throw(ArgumentError("Unexpected extended backtrace entry tag $tag at bt[$i]"))
-        # end
+        if tag == 1 # JL_BT_INTERP_FRAME_TAG
+            code = bt2[j]::Union{CodeInfo,Core.MethodInstance,Nothing}
+            mod = njlvalues == 2 ? bt2[j+1]::Union{Module,Nothing} : nothing
+            push!(ret, InterpreterIP(code, header, mod))
+        else
+            # Tags we don't know about are an error
+            throw(ArgumentError("Unexpected extended backtrace entry tag $tag at bt[$i]"))
+        end
         # See jl_bt_entry_size
         j += Int(njlvalues)
         i += 2 + Int(njlvalues + nuintvals)
@@ -138,10 +139,12 @@ function decode(raw_results::RawAllocProfile)::AllocResults
     allocs = Vector{Alloc}()
 
     @assert length(raw_results.alloc_bts) == length(raw_results.alloc_bt2s)
+    bt2_length = 0
 
     for i in 1:length(raw_results.alloc_bts)
         bt = raw_results.alloc_bts[i]
-        back_trace = _reformat_bt_custom(bt)
+        bt2 = raw_results.alloc_bt2s[i]
+        back_trace = _reformat_bt_custom(bt, bt2)
         stack_trace = stacktrace_memoized(cache, back_trace)
         size = 5 # TODO: grab this
         push!(allocs, Alloc(
@@ -149,13 +152,16 @@ function decode(raw_results::RawAllocProfile)::AllocResults
             stack_trace,
             size
         ))
+
+        bt2_length += length(bt2)
     end
 
     frees = Dict{Type, UInt}()
     
     return AllocResults(
         allocs,
-        frees
+        frees,
+        bt2_length
     )
 end
 

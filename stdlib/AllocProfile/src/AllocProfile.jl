@@ -89,20 +89,11 @@ function load_type(ptr::Ptr{Type})::Type
     return unsafe_pointer_to_objref(ptr)
 end
 
-function decode_alloc(
-    cache::BacktraceCache,
-    bt::Vector{Ptr{Cvoid}},
-    bt2::Vector{Union{Base.InterpreterIP,Core.Compiler.InterpreterIP}}
-)::Alloc
-    Alloc(
-        # load_type(raw_alloc.type),
-        Int, # TODO: get type
-        stacktrace_memoized(cache, _reformat_bt(bt, bt2)),
-        UInt(raw_alloc.size)
-    )
-end
-
-function _reformat_bt_custom(bt::Array{Ptr{Cvoid},1}, bt2::Vector{Union{CodeInfo,Module,Base.InterpreterIP,Core.Compiler.InterpreterIP}})
+# same as _reformat_bt, except has a more specific type for bt2
+function _reformat_bt_custom(
+    bt::Array{Ptr{Cvoid},1},
+    bt2::Array{Union{CodeInfo,Module,InterpreterIP,Core.Compiler.InterpreterIP},1}
+)
     ret = Vector{Union{InterpreterIP,Ptr{Cvoid}}}()
     i, j = 1, 1
     while i <= length(bt)

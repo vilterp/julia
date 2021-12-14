@@ -1,7 +1,7 @@
 module AllocProfile
 
 using Base.StackTraces: StackTrace, StackFrame, lookup
-using Base: InterpreterIP, _reformat_bt
+using Base: InterpreterIP, CodeInfo, _reformat_bt
 
 # matches RawAllocResults on the C side
 struct RawAllocProfile
@@ -101,24 +101,57 @@ function decode_alloc(
     )
 end
 
+function _reformat_bt_custom(bt::Array{Ptr{Cvoid},1})::Vector{Union{InterpreterIP,Ptr{Cvoid}}}
+    ret = Vector{Union{InterpreterIP,Ptr{Cvoid}}}()
+    i, j = 1, 1
+    while i <= length(bt)
+        ip = bt[i]::Ptr{Cvoid}
+        if UInt(ip) != (-1 % UInt) # See also jl_bt_is_native
+            # native frame
+            push!(ret, ip)
+            i += 1
+            continue
+        end
+        # Extended backtrace entry
+        entry_metadata = reinterpret(UInt, bt[i+1])::UInt
+        njlvalues =  entry_metadata & 0x7
+        nuintvals = (entry_metadata >> 3) & 0x7
+        tag       = (entry_metadata >> 6) & 0xf
+        header    =  entry_metadata >> 10
+        # if tag == 1 # JL_BT_INTERP_FRAME_TAG
+        #     code = bt2[j]::Union{CodeInfo,Core.MethodInstance,Nothing}
+        #     mod = njlvalues == 2 ? bt2[j+1]::Union{Module,Nothing} : nothing
+        #     push!(ret, InterpreterIP(code, header, mod))
+        # else
+        #     # Tags we don't know about are an error
+        #     throw(ArgumentError("Unexpected extended backtrace entry tag $tag at bt[$i]"))
+        # end
+        # See jl_bt_entry_size
+        j += Int(njlvalues)
+        i += 2 + Int(njlvalues + nuintvals)
+    end
+    ret
+end
+
 function decode(raw_results::RawAllocProfile)::AllocResults
     cache = BacktraceCache()
-    allocs = Vector{StackTrace}()
+    allocs = Vector{Alloc}()
+
+    @assert length(raw_results.alloc_bts) == length(raw_results.alloc_bt2s)
 
     for i in 1:length(raw_results.alloc_bts)
         bt = raw_results.alloc_bts[i]
-        bt2 = raw_results.alloc_bt2s[i]
-        println("decode $i")
-        println("bt=$bt")
-        println("bt2=$bt2")
-        back_trace = _reformat_bt(bt, bt2)
+        back_trace = _reformat_bt_custom(bt)
         stack_trace = stacktrace_memoized(cache, back_trace)
+        size = 5 # TODO: grab this
         push!(allocs, Alloc(
             Int,
             stack_trace,
-            UInt(raw_alloc.size)
+            size
         ))
     end
+
+    frees = Dict{Type, UInt}()
     
     return AllocResults(
         allocs,

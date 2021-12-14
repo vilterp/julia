@@ -103,17 +103,22 @@ end
 
 function decode(raw_results::RawAllocProfile)::AllocResults
     cache = BacktraceCache()
-    allocs = [
-        decode_alloc(cache, raw_results.alloc_bts[i], raw_results.alloc_bt2s[i])
-        for i in 1:length(raw_results.alloc_bts)
-    ]
+    allocs = Vector{StackTrace}()
 
-    frees = Dict{Type,UInt}()
-    # for i in 1:raw_results.num_frees
-    #     free = unsafe_load(raw_results.frees, i)
-    #     type = load_type(free.type)
-    #     frees[type] = free.count
-    # end
+    for i in 1:length(raw_results.alloc_bts)
+        bt = raw_results.alloc_bts[i]
+        bt2 = raw_results.alloc_bt2s[i]
+        println("decode $i")
+        println("bt=$bt")
+        println("bt2=$bt2")
+        back_trace = _reformat_bt(bt, bt2)
+        stack_trace = stacktrace_memoized(cache, back_trace)
+        push!(allocs, Alloc(
+            Int,
+            stack_trace,
+            UInt(raw_alloc.size)
+        ))
+    end
     
     return AllocResults(
         allocs,

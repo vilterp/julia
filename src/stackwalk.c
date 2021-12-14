@@ -292,7 +292,7 @@ JL_DLLEXPORT jl_value_t *jl_backtrace_from_here(int returnsp, int skip)
     return bt;
 }
 
-static void decode_backtrace(jl_bt_element_t *bt_data, size_t bt_size,
+void decode_backtrace(jl_bt_element_t *bt_data, size_t bt_size,
                              jl_array_t **btout JL_REQUIRE_ROOTED_SLOT,
                              jl_array_t **bt2out JL_REQUIRE_ROOTED_SLOT)
 {
@@ -317,16 +317,6 @@ static void decode_backtrace(jl_bt_element_t *bt_data, size_t bt_size,
             jl_array_ptr_1d_push(bt2, v);
         }
     }
-}
-
-// decode the given backtrace into a simple vector of two arrays
-JL_DLLEXPORT jl_value_t *jl_decode_backtrace(jl_bt_element_t *bt_data, size_t bt_size) {
-    jl_array_t *bt = NULL, *bt2 = NULL;
-    JL_GC_PUSH2(&bt, &bt2);
-    decode_backtrace(bt_data, bt_size, &bt, &bt2);
-    jl_svec_t *pair = jl_svec2(bt, bt2);
-    JL_GC_POP();
-    return (jl_value_t*)pair;
 }
 
 // return exception stack for the current task

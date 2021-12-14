@@ -3,47 +3,55 @@ module AllocProfile
 using Base.StackTraces: StackTrace, StackFrame, lookup
 using Base: InterpreterIP, _reformat_bt
 
-# raw results
-
-struct RawBacktrace
-    data::Ptr{Csize_t} # in C: *jl_bt_element_t
-    size::Csize_t
-end
-
 # matches RawAlloc on the C side
-struct RawAlloc
-    type::Ptr{Type}
-    backtrace::RawBacktrace
-    size::Csize_t
-end
-
-struct TypeNamePair
-    addr::Csize_t
-    name::Ptr{UInt8}
-end
-
-struct FreeInfo
-    type::Ptr{Type}
-    count::UInt
-end
+# struct RawAlloc
+#     type_tag::Csize_t
+#     bt::Vector{Ptr{Cvoid}}
+#     bt2::Vector{Union{Base.InterpreterIP,Core.Compiler.InterpreterIP}}
+#     bytes_allocated::Csize_t
+# end
 
 # matches RawAllocResults on the C side
-struct RawAllocResults
-    allocs::Ptr{RawAlloc}
-    num_allocs::Csize_t
+struct RawAllocProfile
+    allocs::Vector{Core.SimpleVector} # (bt1, bt2, type_tag, bytes_allocated)
 
-    frees::Ptr{FreeInfo}
-    num_frees::Csize_t
+    # sampling parameter
+    skip_every::Csize_t
+    # sampling state
+    alloc_counter::Csize_t
+    last_recorded_alloc::Csize_t
+    
+    # TODO: get frees (garbage profiling) working again
+    # frees_by_type::Dict{Type,UInt}
+    # type_address_by_value_address::Dict{}
+
+    function RawAllocResults(skip_every::Int)
+        return new(
+            Vector{RawAlloc}(),
+            skip_every,
+            alloc_counter,
+            last_recorded_alloc
+        )
+    end
 end
 
+# pass this in, push to it
+const g_profile = Ref{RawAllocResults}()
+
 function start(skip_every::Int=0)
-    ccall(:jl_start_alloc_profile, Cvoid, (Cint,), skip_every)
+    g_profile[] = RawAllocResults(skip_every)
+    ccall(
+        :jl_start_alloc_profile,
+        Cvoid,
+        (Cint, Ref{RawAllocResults}),
+        skip_every,
+        g_profile
+    )
 end
 
 function stop()
-    raw_results = ccall(:jl_stop_alloc_profile, RawAllocResults, ())
+    ccall(:jl_stop_alloc_profile, Cvoid, ())
     decoded_results = decode(raw_results)
-    ccall(:jl_free_alloc_profile, Cvoid, ())
     return decoded_results
 end
 
@@ -52,7 +60,7 @@ end
 struct Alloc
     type::Type
     stacktrace::StackTrace
-    size::Int
+    bytes_allocated::Int
 end
 
 struct AllocResults

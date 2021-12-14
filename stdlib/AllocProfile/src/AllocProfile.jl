@@ -3,12 +3,19 @@ module AllocProfile
 using Base.StackTraces: StackTrace, StackFrame, lookup
 using Base: InterpreterIP, CodeInfo, _reformat_bt
 
+const ExtendedEntryObj = Union{
+    Base.CodeInfo,
+    Module,
+    Base.InterpreterIP,
+    Core.Compiler.InterpreterIP
+}
+
 # matches RawAllocResults on the C side
 struct RawAllocProfile
-    alloc_types::Vector{Csize_t}
+    alloc_types::Vector{Ptr{Type}}
     alloc_sizes::Vector{Csize_t}
     alloc_bts::Vector{Vector{Ptr{Cvoid}}}
-    alloc_bt2s::Vector{Vector{Union{Base.CodeInfo,Module,Base.InterpreterIP,Core.Compiler.InterpreterIP}}}
+    alloc_bt2s::Vector{Vector{ExtendedEntryObj}}
 
     # sampling parameter
     skip_every::Csize_t
@@ -22,10 +29,10 @@ struct RawAllocProfile
 
     function RawAllocProfile(skip_every::Int)
         return new(
-            Vector{Csize_t}(),
+            Vector{Type}(),
             Vector{Csize_t}(),
             Vector{Vector{Ptr{Cvoid}}}(),
-            Vector{Vector{Union{Base.InterpreterIP,Core.Compiler.InterpreterIP}}}(),
+            Vector{Vector{ExtendedEntryObj}}(),
             skip_every,
             0,
             0
@@ -92,7 +99,7 @@ end
 # same as _reformat_bt, except has a more specific type for bt2
 function _reformat_bt_custom(
     bt::Array{Ptr{Cvoid},1},
-    bt2::Array{Union{CodeInfo,Module,InterpreterIP,Core.Compiler.InterpreterIP},1}
+    bt2::Array{ExtendedEntryObj,1}
 )
     ret = Vector{Union{InterpreterIP,Ptr{Cvoid}}}()
     i, j = 1, 1
@@ -129,17 +136,18 @@ function decode(raw_results::RawAllocProfile)::AllocResults
     cache = BacktraceCache()
     allocs = Vector{Alloc}()
 
-    @assert length(raw_results.alloc_bts) == length(raw_results.alloc_bt2s)
+    @assert length(raw_results.alloc_bts) == length(raw_results.alloc_bt2s) == length(raw_results.alloc_types)
     bt2_length = 0
 
     for i in 1:length(raw_results.alloc_bts)
         bt = raw_results.alloc_bts[i]
         bt2 = raw_results.alloc_bt2s[i]
+        type = load_type(raw_results.alloc_types[i])
         back_trace = _reformat_bt_custom(bt, bt2)
         stack_trace = stacktrace_memoized(cache, back_trace)
         size = 5 # TODO: grab this
         push!(allocs, Alloc(
-            Int,
+            type,
             stack_trace,
             size
         ))

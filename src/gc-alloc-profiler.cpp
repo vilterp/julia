@@ -32,7 +32,7 @@ void push_raw_alloc(struct RawAllocProfile *profile, size_t type_tag, size_t byt
     decode_backtrace(bt_data, bt_size, &bt, &bt2);
     JL_GC_POP();
 
-    // jl_array_ptr_1d_push(profile->alloc_types, type_tag);
+    jl_array_ptr_1d_push(profile->alloc_types, (jl_value_t*)type_tag);
     // jl_array_ptr_1d_push(profile->alloc_sizes, bytes_allocated);
     jl_array_ptr_1d_push(profile->alloc_bts, (jl_value_t *)bt);
     jl_array_ptr_1d_push(profile->alloc_bt2s, (jl_value_t *)bt2);

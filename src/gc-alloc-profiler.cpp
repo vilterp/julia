@@ -40,7 +40,8 @@ void push_raw_alloc(struct RawAllocProfile *profile, size_t type_tag, size_t byt
     } else {
         jl_array_ptr_1d_push(profile->alloc_types, (jl_value_t*)jl_nothing_type);
     }
-    // jl_array_ptr_1d_push(profile->alloc_sizes, bytes_allocated);
+    // TODO: push this onto this array without boxing it
+    jl_array_ptr_1d_push(profile->alloc_sizes, jl_box_uint64(bytes_allocated));
     jl_array_ptr_1d_push(profile->alloc_bts, (jl_value_t *)bt);
     jl_array_ptr_1d_push(profile->alloc_bt2s, (jl_value_t *)bt2);
 }
@@ -75,8 +76,6 @@ void _record_allocated_value(jl_value_t *val, size_t size) JL_NOTSAFEPOINT {
     size_t type_tag = (size_t) jl_typeof(val);
 
     // profile->type_address_by_value_address[(size_t)val] = (size_t)type;
-
-    auto bytes_allocated = 5; // TODO: where were we getting this from?
 
     g_alloc_profile_enabled = false;
     push_raw_alloc(profile, type_tag, size);

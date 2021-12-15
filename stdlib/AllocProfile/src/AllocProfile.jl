@@ -13,7 +13,7 @@ const ExtendedEntryObj = Union{
 # matches RawAllocResults on the C side
 struct RawAllocProfile
     alloc_types::Vector{Ptr{Type}}
-    alloc_sizes::Vector{Csize_t}
+    alloc_sizes::Vector{Ptr{Csize_t}}
     alloc_bts::Vector{Vector{Ptr{Cvoid}}}
     alloc_bt2s::Vector{Vector{ExtendedEntryObj}}
 
@@ -135,15 +135,21 @@ function decode(raw_results::RawAllocProfile)::AllocResults
     cache = BacktraceCache()
     allocs = Vector{Alloc}()
 
-    @assert length(raw_results.alloc_bts) == length(raw_results.alloc_bt2s) == length(raw_results.alloc_types)
+    @assert length(raw_results.alloc_bts) ==
+        length(raw_results.alloc_bt2s) ==
+        length(raw_results.alloc_types) ==
+        length(raw_results.alloc_sizes)
 
     for i in 1:length(raw_results.alloc_bts)
         bt = raw_results.alloc_bts[i]
         bt2 = raw_results.alloc_bt2s[i]
-        type = load_type(raw_results.alloc_types[i])
+        type_tag = raw_results.alloc_types[i]
+        size = ccall(:jl_unbox_uint64, UInt64, (Ptr{Csize_t},), raw_results.alloc_sizes[i])
+
+        type = load_type(type_tag)
         back_trace = _reformat_bt_custom(bt, bt2)
         stack_trace = stacktrace_memoized(cache, back_trace)
-        size = 5 # TODO: grab this
+        
         push!(allocs, Alloc(
             type,
             stack_trace,

@@ -75,7 +75,6 @@ end
 struct AllocResults
     allocs::Vector{Alloc}
     frees::Dict{Type,UInt}
-    bt2_length::Int
 end
 
 function Base.show(io::IO, ::AllocResults)
@@ -137,7 +136,6 @@ function decode(raw_results::RawAllocProfile)::AllocResults
     allocs = Vector{Alloc}()
 
     @assert length(raw_results.alloc_bts) == length(raw_results.alloc_bt2s) == length(raw_results.alloc_types)
-    bt2_length = 0
 
     for i in 1:length(raw_results.alloc_bts)
         bt = raw_results.alloc_bts[i]
@@ -151,8 +149,6 @@ function decode(raw_results::RawAllocProfile)::AllocResults
             stack_trace,
             size
         ))
-
-        bt2_length += length(bt2)
     end
 
     frees = Dict{Type, UInt}()
@@ -160,7 +156,6 @@ function decode(raw_results::RawAllocProfile)::AllocResults
     return AllocResults(
         allocs,
         frees,
-        bt2_length
     )
 end
 

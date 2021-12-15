@@ -21,6 +21,9 @@ RawAllocProfile *g_alloc_profile = nullptr;
 
 // === stack stuff ===
 
+// TODO: dedup with AllocProfile.jl or, preferably, eliminate entirely
+size_t TYPE_PTR_THRESHOLD = 0x0000000100000000;
+
 void push_raw_alloc(struct RawAllocProfile *profile, size_t type_tag, size_t bytes_allocated) {
     jl_bt_element_t bt_data[JL_MAX_BT_SIZE];
 
@@ -32,7 +35,11 @@ void push_raw_alloc(struct RawAllocProfile *profile, size_t type_tag, size_t byt
     decode_backtrace(bt_data, bt_size, &bt, &bt2);
     JL_GC_POP();
 
-    jl_array_ptr_1d_push(profile->alloc_types, (jl_value_t*)type_tag);
+    if (type_tag >= TYPE_PTR_THRESHOLD) {
+        jl_array_ptr_1d_push(profile->alloc_types, (jl_value_t*)type_tag);
+    } else {
+        jl_array_ptr_1d_push(profile->alloc_types, (jl_value_t*)jl_nothing_type);
+    }
     // jl_array_ptr_1d_push(profile->alloc_sizes, bytes_allocated);
     jl_array_ptr_1d_push(profile->alloc_bts, (jl_value_t *)bt);
     jl_array_ptr_1d_push(profile->alloc_bt2s, (jl_value_t *)bt2);

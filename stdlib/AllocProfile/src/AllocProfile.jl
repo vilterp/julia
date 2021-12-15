@@ -95,42 +95,6 @@ function load_type(ptr::Ptr{Type})::Type
     return unsafe_pointer_to_objref(ptr)
 end
 
-# same as _reformat_bt, except has a more specific type for bt2
-function _reformat_bt_custom(
-    bt::Array{Ptr{Cvoid},1},
-    bt2::Array{ExtendedEntryObj,1}
-)
-    ret = Vector{Union{InterpreterIP,Ptr{Cvoid}}}()
-    i, j = 1, 1
-    while i <= length(bt)
-        ip = bt[i]::Ptr{Cvoid}
-        if UInt(ip) != (-1 % UInt) # See also jl_bt_is_native
-            # native frame
-            push!(ret, ip)
-            i += 1
-            continue
-        end
-        # Extended backtrace entry
-        entry_metadata = reinterpret(UInt, bt[i+1])::UInt
-        njlvalues =  entry_metadata & 0x7
-        nuintvals = (entry_metadata >> 3) & 0x7
-        tag       = (entry_metadata >> 6) & 0xf
-        header    =  entry_metadata >> 10
-        if tag == 1 # JL_BT_INTERP_FRAME_TAG
-            code = bt2[j]::Union{CodeInfo,Core.MethodInstance,Nothing}
-            mod = njlvalues == 2 ? bt2[j+1]::Union{Module,Nothing} : nothing
-            push!(ret, InterpreterIP(code, header, mod))
-        else
-            # Tags we don't know about are an error
-            throw(ArgumentError("Unexpected extended backtrace entry tag $tag at bt[$i]"))
-        end
-        # See jl_bt_entry_size
-        j += Int(njlvalues)
-        i += 2 + Int(njlvalues + nuintvals)
-    end
-    ret
-end
-
 function decode(raw_results::RawAllocProfile)::AllocResults
     cache = BacktraceCache()
     allocs = Vector{Alloc}()
@@ -147,8 +111,7 @@ function decode(raw_results::RawAllocProfile)::AllocResults
         size = ccall(:jl_unbox_uint64, UInt64, (Ptr{Csize_t},), raw_results.alloc_sizes[i])
 
         type = load_type(type_tag)
-        back_trace = _reformat_bt_custom(bt, bt2)
-        stack_trace = stacktrace_memoized(cache, back_trace)
+        stack_trace = stacktrace_memoized(cache, bt)
         
         push!(allocs, Alloc(
             type,
@@ -167,7 +130,7 @@ end
 
 function stacktrace_memoized(
     cache::BacktraceCache,
-    trace::Vector{BacktraceEntry},
+    trace::Vector{Ptr{Nothing}},
     c_funcs::Bool=true
 )::StackTrace
     stack = StackTrace()

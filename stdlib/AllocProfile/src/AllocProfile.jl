@@ -84,6 +84,13 @@ end
 const BacktraceEntry = Union{Ptr{Cvoid}, InterpreterIP}
 const BacktraceCache = Dict{BacktraceEntry,Vector{StackFrame}}
 
+function profile(f::Function, skip_every::Int=0)
+    AllocProfile.start(skip_every)
+    res = f()
+    AllocProfile.stop()
+    return (res, decode(g_profile[]))
+end
+
 # loading anything below this seems to segfault
 # TODO: use filter out special types before we get here
 TYPE_PTR_THRESHOLD = 0x0000000100000000
@@ -108,7 +115,8 @@ function decode(raw_results::RawAllocProfile)::AllocResults
         bt = raw_results.alloc_bts[i]
         bt2 = raw_results.alloc_bt2s[i]
         type_tag = raw_results.alloc_types[i]
-        size = ccall(:jl_unbox_uint64, UInt64, (Ptr{Csize_t},), raw_results.alloc_sizes[i])
+        # size = ccall(:jl_unbox_uint64, UInt64, (Ptr{Csize_t},), raw_results.alloc_sizes[i])
+        size = 42 # TODO: sometimes getting corrupt values here
 
         type = load_type(type_tag)
         stack_trace = stacktrace_memoized(cache, bt)

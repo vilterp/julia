@@ -5,12 +5,12 @@ using JSON3
 
 struct SerializationState
     location_ids::Dict{Base.StackFrame,Int}
-    type_ids::Dict{String,Int}
+    type_ids::Dict{Type,Int}
 
     function SerializationState()
         return new(
-            Dict{String,Int}(),
-            Dict{String,Int}()
+            Dict{Base.StackFrame,Int}(),
+            Dict{Type,Int}()
         )
     end
 end
@@ -29,12 +29,11 @@ function transform_stack(st::SerializationState, stack::Base.StackTrace)
 end
 
 function get_type_id(st::SerializationState, type::Type)
-    as_string = string(type)
-    if haskey(st.type_ids, as_string)
-        return st.type_ids[as_string]
+    if haskey(st.type_ids, type)
+        return st.type_ids[type]
     end
     new_id = length(st.type_ids)
-    st.type_ids[as_string] = new_id
+    st.type_ids[type] = new_id
     return new_id
 end
 
@@ -44,7 +43,7 @@ const SerializedAlloc = @NamedTuple begin
     type_id::Int
 end
 
-function write_as_json_help(profile::AllocResults)
+function write_as_json_help(profile::AllocProfile.AllocResults)
     st = SerializationState()
 
     allocs = Vector{SerializedAlloc}()
@@ -58,11 +57,13 @@ function write_as_json_help(profile::AllocResults)
     return (
         allocs=allocs,
         frees=[],
-        locations=[(loc=loc, id=id) for (loc, id) in st.location_ids],
-        types=[(name=name, id=id) for (name, id) in st.type_ids]
+        locations=[(loc=string(frame), id=id) for (frame, id) in st.location_ids],
+        types=[(name=string(type), id=id) for (type, id) in st.type_ids]
     )
 end
 
-function write_as_json(profile::AllocResults)
-    return JSON3.write(write_as_json_help(profile))
+function write_as_json(profile::AllocProfile.AllocResults)
+    val = write_as_json_help(profile)
+    println("writing $val")
+    return JSON3.write()
 end

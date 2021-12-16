@@ -43,7 +43,7 @@ const SerializedAlloc = @NamedTuple begin
     type_id::Int
 end
 
-function write_as_json_help(profile::AllocProfile.AllocResults)
+function write_as_json_help(profile::AllocResults)
     st = SerializationState()
 
     allocs = Vector{SerializedAlloc}()
@@ -62,8 +62,15 @@ function write_as_json_help(profile::AllocProfile.AllocResults)
     )
 end
 
-function write_as_json(profile::AllocProfile.AllocResults)
+function write_as_json(profile::AllocResults)
     val = write_as_json_help(profile)
-    println("writing $val")
-    return JSON3.write()
+    println("writing JSON")
+    return JSON3.write(val)
+end
+
+function write_as_json(profile::AllocResults, path::String)
+    val = write_as_json_help(profile)
+    open(path, "w") do f
+        JSON3.write(f, val)
+    end
 end

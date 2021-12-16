@@ -12,7 +12,6 @@ using AllocProfile
     using Base64
 
     AllocProfile.stop()
-
     raw_results = AllocProfile.g_profile[]
     results = AllocProfile.decode(raw_results)
 
@@ -21,4 +20,8 @@ using AllocProfile
     @test first_alloc.bytes_allocated > 0
     @test length(first_alloc.stacktrace) > 0
     @test length(string(first_alloc.type)) > 0
+
+    json = AllocProfile.write_as_json(results)
+    println(json)
+    @test length(json) > 0
 end

@@ -4,7 +4,7 @@
 using JSON3
 
 struct SerializationState
-    location_ids::Dict{String,Int}
+    location_ids::Dict{Base.StackFrame,Int}
     type_ids::Dict{String,Int}
 
     function SerializationState()
@@ -16,12 +16,11 @@ struct SerializationState
 end
 
 function get_location_id(st::SerializationState, frame::Base.StackFrame)::Int
-    as_string = string(frame)
-    if haskey(st.location_ids, as_string)
-        return st.location_ids[as_string]
+    if haskey(st.location_ids, frame)
+        return st.location_ids[frame]
     end
     new_id = length(st.location_ids)
-    st.location_ids[as_string] = new_id
+    st.location_ids[frame] = new_id
     return new_id
 end
 
@@ -56,7 +55,6 @@ function write_as_json_help(profile::AllocResults)
             type_id=get_type_id(st, alloc.type)
         ))
     end
-    println("about to write")
     return (
         allocs=allocs,
         frees=[],

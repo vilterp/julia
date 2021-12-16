@@ -158,4 +158,6 @@ function stacktrace_memoized(
     return stack
 end
 
+include("write_as_json.jl")
+
 end

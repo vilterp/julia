@@ -51,7 +51,7 @@ function write_as_json_help(profile::AllocResults)
         push!(allocs, (
             stack=transform_stack(st, alloc.stacktrace),
             size=alloc.bytes_allocated,
-            type_id=get_type_id(st, alloc.type)
+            type=get_type_id(st, alloc.type)
         ))
     end
     return (

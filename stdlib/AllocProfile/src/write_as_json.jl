@@ -1,0 +1,76 @@
+# serialize an allocation profile into reasonably-compact
+# JSON by interning code locations and types.
+
+using JSON3
+
+struct SerializationState
+    location_ids::Dict{Base.StackFrame,Int}
+    type_ids::Dict{Type,Int}
+
+    function SerializationState()
+        return new(
+            Dict{Base.StackFrame,Int}(),
+            Dict{Type,Int}()
+        )
+    end
+end
+
+function get_location_id(st::SerializationState, frame::Base.StackFrame)::Int
+    if haskey(st.location_ids, frame)
+        return st.location_ids[frame]
+    end
+    new_id = length(st.location_ids)
+    st.location_ids[frame] = new_id
+    return new_id
+end
+
+function transform_stack(st::SerializationState, stack::Base.StackTrace)
+    return [get_location_id(st, frame) for frame in stack]
+end
+
+function get_type_id(st::SerializationState, type::Type)
+    if haskey(st.type_ids, type)
+        return st.type_ids[type]
+    end
+    new_id = length(st.type_ids)
+    st.type_ids[type] = new_id
+    return new_id
+end
+
+const SerializedAlloc = @NamedTuple begin
+    stack::Vector{Int}
+    size::Int
+    type::Int
+end
+
+function write_as_json_help(profile::AllocResults)
+    st = SerializationState()
+
+    allocs = Vector{SerializedAlloc}()
+    for alloc in profile.allocs
+        push!(allocs, (
+            stack=transform_stack(st, alloc.stacktrace),
+            size=alloc.size,
+            type=get_type_id(st, alloc.type)
+        ))
+    end
+    return (
+        allocs=allocs,
+        frees=[],
+        locations=[(loc=string(frame), id=id) for (frame, id) in st.location_ids],
+        types=[(name=string(type), id=id) for (type, id) in st.type_ids]
+    )
+end
+
+function write_as_json(profile::AllocResults)
+    val = write_as_json_help(profile)
+    println("writing JSON")
+    return JSON3.write(val)
+end
+
+function write_as_json(profile::AllocResults, path::String)
+    val = write_as_json_help(profile)
+    open(path, "w") do f
+        JSON3.write(f, val)
+    end
+end

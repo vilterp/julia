@@ -100,36 +100,29 @@ end
 
 function decode(raw_results::RawAllocResults)::AllocResults
     cache = BacktraceCache()
+    @info "ALLOCS"
     allocs = [
         decode_alloc(cache, unsafe_load(raw_results.allocs, i))
         for i in 1:raw_results.num_allocs
     ]
 
+    @info "FREES"
     frees = Dict{Type,UInt}()
     for i in 1:raw_results.num_frees
         free = unsafe_load(raw_results.frees, i)
         type = load_type(free.type)
         frees[type] = free.count
     end
-    
+
     return AllocResults(
         allocs,
         frees
     )
 end
 
-const f = Ref{IOStream}()
-
-function __init__()
-    f[] = open("debug.log", "w")
-end
-
 function load_backtrace(trace::RawBacktrace)::Vector{Ptr{Cvoid}}
-    println(f[], "load_backtrace: trace.data: $(trace.data)")
-    println(f[], "load_backtrace: trace.size: $(trace.size)")
     out = Vector{Ptr{Cvoid}}()
     for i in 1:trace.size
-        println(f[], "  $i")
         push!(out, unsafe_load(trace.data, i))
     end
 
@@ -156,6 +149,20 @@ function stacktrace_memoized(
         end
     end
     return stack
+end
+
+# Precompile once for the package cache,
+precompile(start, ())
+precompile(stop, ())
+
+function __init__()
+    # And once when loading the package, to get the full machine code precompiled.
+    # TOOD: Although actually, we probably don't need this since this package will be
+    # precompiled into the sysimg, so the top-level statements will be enough to get the
+    # machine code codegen precompiled as well. :)
+    # We can delete this function once we make this package a stdlib.
+    precompile(start, ())
+    precompile(stop, ())
 end
 
 end

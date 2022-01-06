@@ -3,11 +3,14 @@ module Allocs
 using Base.StackTraces: StackTrace, StackFrame, lookup
 using Base: InterpreterIP
 
-# raw results
+# --- Raw results structs, originally defined in C ---
+
+# The C jl_bt_element_t object contains either an IP pointer (size_t) or a void*.
+const BTElement = Csize_t;
 
 # matches RawBacktrace on the C side
 struct RawBacktrace
-    data::Ptr{Csize_t} # in C: *jl_bt_element_t
+    data::Ptr{BTElement} # in C: *jl_bt_element_t
     size::Csize_t
 end
 
@@ -25,10 +28,20 @@ struct RawAllocResults
 end
 
 """
-    AllocProfile.@profile [skip_every=10_000] ex
+    Profile.Allocs.@profile [sample_rate=0.0001] expr
 
-Profile allocations that happen during `my_function`, returning
+Profile allocations that happen during `expr`, returning
 both the result and and AllocResults struct.
+
+```julia
+julia> Profile.Allocs.@profile sample_rate=0.01 peakflops()
+1.03733270279065e11
+
+julia> results = Profile.Allocs.fetch();
+
+julia> last(sort(results.allocs, by=x->x.size))
+Profile.Allocs.Alloc(Vector{Any}, Base.StackTraces.StackFrame[_new_array_ at array.c:127, ...], 5576)
+```
 """
 macro profile(opts, ex)
     _prof_expr(ex, opts)
@@ -46,8 +59,8 @@ function _prof_expr(expr, opts)
     end
 end
 
-function start(; sample_rate::Float64)
-    ccall(:jl_start_alloc_profile, Cvoid, (Cdouble,), sample_rate)
+function start(; sample_rate::Number)
+    ccall(:jl_start_alloc_profile, Cvoid, (Cdouble,), Float64(sample_rate))
 end
 
 function stop()
@@ -76,12 +89,13 @@ struct AllocResults
     allocs::Vector{Alloc}
 end
 
-function Base.show(io::IO, ::AllocResults)
-    print(io, "AllocResults")
+# Without this, the Alloc's stacktrace prints for lines and lines and lines..
+function Base.show(io::IO, a::Alloc)
+    stacktrace_sample = length(a.stacktrace) >= 1 ? "$(a.stacktrace[1]), ..." : ""
+    print(io, "$Alloc($(a.type), $StackFrame[$stacktrace_sample], $(a.size))")
 end
 
-const BacktraceEntry = Union{Ptr{Cvoid}, InterpreterIP}
-const BacktraceCache = Dict{BacktraceEntry,Vector{StackFrame}}
+const BacktraceCache = Dict{BTElement,Vector{StackFrame}}
 
 # copied from julia_internal.h
 const JL_BUFF_TAG = UInt(0x4eadc000)
@@ -115,8 +129,8 @@ function decode(raw_results::RawAllocResults)::AllocResults
     return AllocResults(allocs)
 end
 
-function load_backtrace(trace::RawBacktrace)::Vector{Ptr{Cvoid}}
-    out = Vector{Ptr{Cvoid}}()
+function load_backtrace(trace::RawBacktrace)::Vector{BTElement}
+    out = Vector{BTElement}()
     for i in 1:trace.size
         push!(out, unsafe_load(trace.data, i))
     end
@@ -126,7 +140,7 @@ end
 
 function stacktrace_memoized(
     cache::BacktraceCache,
-    trace::Vector{Ptr{Cvoid}},
+    trace::Vector{BTElement},
     c_funcs::Bool=true
 )::StackTrace
     stack = StackTrace()
@@ -147,17 +161,8 @@ function stacktrace_memoized(
 end
 
 # Precompile once for the package cache,
-precompile(start, ())
-precompile(stop, ())
-
-function __init__()
-    # And once when loading the package, to get the full machine code precompiled.
-    # TOOD: Although actually, we probably don't need this since this package will be
-    # precompiled into the sysimg, so the top-level statements will be enough to get the
-    # machine code codegen precompiled as well. :)
-    # We can delete this function once we make this package a stdlib.
-    precompile(start, ())
-    precompile(stop, ())
-end
+@assert precompile(start, ())
+@assert precompile(stop, ())
+@assert precompile(fetch, ())
 
 end

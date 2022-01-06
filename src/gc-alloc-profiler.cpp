@@ -22,6 +22,8 @@ struct RawAlloc {
     size_t size;
 };
 
+// == These structs define the global singleton profile buffer that will be used by
+// callbacks to store profile results. ==
 struct PerThreadAllocProfile {
     vector<RawAlloc> allocs;
 };
@@ -36,19 +38,21 @@ struct CombinedResults {
     vector<RawAlloc> combined_allocs;
 };
 
-// == global variables manipulated by callbacks ==
+// == Global variables manipulated by callbacks ==
 
 AllocProfile g_alloc_profile;
 int g_alloc_profile_enabled = false;
-CombinedResults g_combined_results; // will live forever
+CombinedResults g_combined_results; // Will live forever.
 
 // === stack stuff ===
 
 RawBacktrace get_raw_backtrace() {
+    // A single large buffer to record backtraces onto
     static jl_bt_element_t static_bt_data[JL_MAX_BT_SIZE];
 
     size_t bt_size = rec_backtrace(static_bt_data, JL_MAX_BT_SIZE, 2);
 
+    // Then we copy only the needed bytes out of the buffer into our profile.
     size_t bt_bytes = bt_size * sizeof(jl_bt_element_t);
     jl_bt_element_t *bt_data = (jl_bt_element_t*) malloc(bt_bytes);
     memcpy(bt_data, static_bt_data, bt_bytes);
@@ -61,6 +65,8 @@ RawBacktrace get_raw_backtrace() {
 
 // == exported interface ==
 
+extern "C" {  // Needed since the function doesn't take any arguments.
+
 JL_DLLEXPORT void jl_start_alloc_profile(double sample_rate) {
     g_alloc_profile = AllocProfile{sample_rate};
 
@@ -71,15 +77,11 @@ JL_DLLEXPORT void jl_start_alloc_profile(double sample_rate) {
     g_alloc_profile_enabled = true;
 }
 
-extern "C" {  // Needed since the function doesn't take any arguments.
-
 JL_DLLEXPORT struct RawAllocResults jl_fetch_alloc_profile() {
     // TODO: check that the results exist
     return RawAllocResults{
         g_combined_results.combined_allocs.data(),
         g_combined_results.combined_allocs.size(),
-        g_combined_results.combined_frees.data(),
-        g_combined_results.combined_frees.size()
     };
 }
 
@@ -106,8 +108,6 @@ JL_DLLEXPORT void jl_free_alloc_profile() {
     g_combined_results.combined_allocs.clear();
 }
 
-}
-
 // == callbacks called into by the outside ==
 
 void _record_allocated_value(jl_value_t *val, size_t size) JL_NOTSAFEPOINT {
@@ -127,3 +127,5 @@ void _record_allocated_value(jl_value_t *val, size_t size) JL_NOTSAFEPOINT {
         size
     });
 }
+
+}  // extern "C"

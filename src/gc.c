@@ -1226,6 +1226,7 @@ JL_DLLEXPORT jl_value_t *jl_gc_pool_alloc(jl_ptls_t ptls, int pool_offset,
             pg->nfree = 0;
             pg->has_young = 1;
         }
+        maybe_record_alloc_to_profile(v, osize);
         return jl_valueof(v);
     }
     // if the freelist is empty we reuse empty but not freed pages
@@ -1250,9 +1251,7 @@ JL_DLLEXPORT jl_value_t *jl_gc_pool_alloc(jl_ptls_t ptls, int pool_offset,
         next = (jl_taggedvalue_t*)((char*)v + osize);
     }
     p->newpages = next;
-
-    maybe_record_alloc_to_profile(v, 0);
-
+    maybe_record_alloc_to_profile(v, osize);
     return jl_valueof(v);
 }
 

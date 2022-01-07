@@ -1250,6 +1250,9 @@ JL_DLLEXPORT jl_value_t *jl_gc_pool_alloc(jl_ptls_t ptls, int pool_offset,
         next = (jl_taggedvalue_t*)((char*)v + osize);
     }
     p->newpages = next;
+
+    maybe_record_alloc_to_profile(v, 0);
+
     return jl_valueof(v);
 }
 

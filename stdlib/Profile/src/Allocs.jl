@@ -75,7 +75,7 @@ A sample rate of 1.0 will record everything; 0.0 will record nothing.
 """
 function start(; sample_rate::Real)
     ccall(:jl_start_alloc_profile, Cvoid, (Cdouble,), Float64(sample_rate))
-    
+
     _g_sample_rate[] = sample_rate
     _g_gc_num_before[] = Base.gc_num()
 end

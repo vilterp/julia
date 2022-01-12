@@ -969,7 +969,9 @@ JL_DLLEXPORT jl_value_t *jl_gc_big_alloc(jl_ptls_t ptls, size_t sz)
     v->sz = allocsz;
     v->age = 0;
     gc_big_object_link(v, &ptls->heap.big_objects);
-    return jl_valueof(&v->header);
+    jl_value_t *value = jl_valueof(&v->header);
+    maybe_record_alloc_to_profile(value, sz);
+    return value;
 }
 
 // Sweep list rooted at *pv, removing and freeing any unmarked objects.

@@ -357,6 +357,8 @@ STATIC_INLINE jl_value_t *jl_gc_alloc_(jl_ptls_t ptls, size_t sz, void *ty)
         int pool_id = jl_gc_szclass(allocsz);
         jl_gc_pool_t *p = &ptls->heap.norm_pools[pool_id];
         int osize = jl_gc_sizeclasses[pool_id];
+        // We call `jl_gc_pool_alloc_wrapper` instead of `jl_gc_pool_alloc` to avoid double-counting in
+        // the Allocations Profiler. (See https://github.com/JuliaLang/julia/pull/43868 for more details.)
         v = jl_gc_pool_alloc_wrapper(ptls, (char*)p - (char*)ptls, osize);
     }
     else {

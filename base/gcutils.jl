@@ -122,6 +122,12 @@ function take_heap_snapshot(filepath::String)
     end
 end
 
+# function take_heap_snapshot(path::String)
+#     open(path, "w") do f
+#         take_heap_snapshot(f)
+#     end
+# end
+
 """
     GC.enable_finalizers(on::Bool)
 

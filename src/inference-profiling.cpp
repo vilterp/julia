@@ -16,14 +16,15 @@ vector<jl_value_t*> inference_profiling_results;
 
 extern "C" {
 
-JL_DLLEXPORT jl_array_t* jl_typeinf_profiling_clear_and_fetch()
+JL_DLLEXPORT jl_array_t* jl_typeinf_profiling_clear_and_fetch(jl_value_t *array_timing_type)
 {
     JL_LOCK(&typeinf_profiling_lock);
 
     size_t len = inference_profiling_results.size();
 
-    jl_array_t *out = jl_alloc_array_1d(jl_array_any_type, len);
+    jl_array_t *out = jl_alloc_array_1d(array_timing_type, len);
     JL_GC_PUSH1(&out);
+
     memcpy(out->data, inference_profiling_results.data(), len * sizeof(void*));
 
     inference_profiling_results.clear();

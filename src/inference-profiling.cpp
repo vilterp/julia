@@ -23,11 +23,13 @@ JL_DLLEXPORT jl_array_t* jl_typeinf_profiling_clear_and_fetch()
     size_t len = inference_profiling_results.size();
 
     jl_array_t *out = jl_alloc_array_1d(jl_array_any_type, len);
+    JL_GC_PUSH1(&out);
     memcpy(out->data, inference_profiling_results.data(), len * sizeof(void*));
 
     inference_profiling_results.clear();
 
     JL_UNLOCK(&typeinf_profiling_lock);
+    JL_GC_POP();
 
     return out;
 }

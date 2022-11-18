@@ -38,7 +38,9 @@ JL_DLLEXPORT void jl_typeinf_profiling_push_timing(
 {
     JL_LOCK(&typeinf_profiling_lock);
 
-    jl_array_ptr_1d_push(inference_profiling_results_array, timing);
+    jl_array_grow_end(inference_profiling_results_array, 1);
+    size_t len = jl_array_len(inference_profiling_results_array);
+    jl_array_ptr_set(inference_profiling_results_array, len - 1, timing);
 
     JL_UNLOCK(&typeinf_profiling_lock);
 }

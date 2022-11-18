@@ -74,8 +74,7 @@ that there may be concurrent invocations of inference that are still running in 
 which haven't yet been added to this buffer. Those can be fetched in a future call.
 """
 function clear_and_fetch_timings()
-    res = ccall(:jl_typeinf_profiling_clear_and_fetch, Vector{Any}, ())
-    return reinterpret(Vector{Timing}, res)
+    return ccall(:jl_typeinf_profiling_clear_and_fetch, Vector{Any}, ())
 end
 
 function finish_timing_profile(timing::Timing)

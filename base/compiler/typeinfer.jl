@@ -77,12 +77,15 @@ which haven't yet been added to this buffer. Those can be fetched in a future ca
 """
 function clear_and_fetch_timings()
     # Pass in the type, since the C code doesn't know about our Timing struct.
-    ccall(:jl_typeinf_profiling_clear_and_fetch, Any, (Any,), Vector{Timing})::Vector{Timing}
+    ccall(:jl_typeinf_profiling_clear_and_fetch, Any, (Any, Any,),
+          _finished_timings, Vector{Timing})::Vector{Timing}
 end
 
 function finish_timing_profile(timing::Timing)
-    ccall(:jl_typeinf_profiling_push_timing, Cvoid, (Any,), timing)
+    ccall(:jl_typeinf_profiling_push_timing, Cvoid, (Any, Any,), _finished_timings, timing)
 end
+
+const _finished_timings = Timing[]
 
 # We keep a stack of the Timings for each of the MethodInstances currently being timed.
 # Since type inference currently operates via a depth-first search (during abstract

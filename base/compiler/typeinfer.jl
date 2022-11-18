@@ -85,6 +85,7 @@ function finish_timing_profile(timing::Timing)
     ccall(:jl_typeinf_profiling_push_timing, Cvoid, (Any, Any,), _finished_timings, timing)
 end
 
+# TODO(PR): Comment this vector, explain that it should only be accessed thru C.
 const _finished_timings = Timing[]
 
 # We keep a stack of the Timings for each of the MethodInstances currently being timed.

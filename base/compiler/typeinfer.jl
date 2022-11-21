@@ -117,7 +117,6 @@ function reset_timings()
         _time_ns()))
     return nothing
 end
-reset_timings()
 
 # (This is split into a function so that it can be called both in this module, at the top
 # of `enter_new_timer()`, and once at the Very End of the operation, by whoever started
@@ -129,7 +128,7 @@ reset_timings()
     parent_timer = _timings[end]
     accum_time = stop_time - parent_timer.cur_start_time
 
-    # Add in accum_time ("modify" the immutable struct)
+    # Add in accum_time
     @inbounds begin
         _timings[end].time += accum_time
     end
@@ -139,7 +138,7 @@ end
 @inline function enter_new_timer(frame)
     # Very first thing, stop the active timer: get the current time and add in the
     # time since it was last started to its aggregate exclusive time.
-    if length(_timings) > 0 || (length(_timings) > 1 && _timings[1] === ROOTmi)
+    if length(_timings) > 0
         close_current_timer()
     end
 

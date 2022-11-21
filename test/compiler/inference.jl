@@ -3479,9 +3479,6 @@ end
         @eval M1.g(2, 3.0)
     end
     @test timing1 isa Vector{Core.Compiler.Timings.Timing}
-    
-    println("timing ", timing1)
-    
     # The last two functions to be inferred should be `i` and `i2`, inferred at runtime with
     # their concrete types.
     @test sort([mi_info.mi.def.name for (time,mi_info) in flatten_times(timing1)[end-1:end]]) == [:i, :i2]

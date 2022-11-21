@@ -139,7 +139,7 @@ end
 @inline function enter_new_timer(frame)
     # Very first thing, stop the active timer: get the current time and add in the
     # time since it was last started to its aggregate exclusive time.
-    if length(_timings) > 0 || (length(_timings) === 1 && _timings[1] === ROOTmi)
+    if length(_timings) > 0 || (length(_timings) > 1 && _timings[1] === ROOTmi)
         close_current_timer()
     end
 
@@ -173,7 +173,10 @@ end
     new_timer = pop!(_timings)
     Core.Compiler.@assert new_timer.mi_info.mi === expected_mi_info.mi
 
-    is_profile_root = length(_timings) === 0
+    # check for two cases: normal case & backcompat case
+    is_profile_root_normal = length(_timings) === 0
+    is_profile_root_backcompat = length(_timings) === 1 && _timings[1] === ROOTmi
+    is_profile_root = is_profile_root_normal || is_profile_root_backcompat
 
     accum_time = stop_time - new_timer.cur_start_time
     # Add in accum_time ("modify" the immutable struct)

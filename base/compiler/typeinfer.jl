@@ -97,16 +97,50 @@ const _finished_timings = Timing[]
 # because we create a new node for duplicates.)
 const _timings = Timing[]
 
+# ROOT() is an empty function used as the top-level Timing node to measure all time spent
+# *not* in type inference during a given recording trace. It is used as a "dummy" node.
+function ROOT() end
+const ROOTmi = Core.Compiler.specialize_method(
+    first(Core.Compiler.methods(ROOT)), Tuple{typeof(ROOT)}, Core.svec())
+"""
+    Core.Compiler.reset_timings()
+Empty out the previously recorded type inference timings (`Core.Compiler._timings`), and
+start the ROOT() timer again. `ROOT()` measures all time spent _outside_ inference.
+
+DEPRECATED: this will be removed; use `clear_and_fetch_timings` instead.
+"""
+function reset_timings()
+    empty!(_timings)
+    push!(_timings, Timing(
+        # The MethodInstance for ROOT(), and default empty values for other fields.
+        InferenceFrameInfo(ROOTmi, 0x0, Any[], Any[Core.Const(ROOT)], 1),
+        _time_ns()))
+    return nothing
+end
+reset_timings()
+
+# (This is split into a function so that it can be called both in this module, at the top
+# of `enter_new_timer()`, and once at the Very End of the operation, by whoever started
+# the operation and called `reset_timings()`.)
+# NOTE: the @inline annotations here are not to make it faster, but to reduce the gap between
+# timer manipulations and the tasks we're timing.
+@inline function close_current_timer()
+    stop_time = _time_ns()
+    parent_timer = _timings[end]
+    accum_time = stop_time - parent_timer.cur_start_time
+
+    # Add in accum_time ("modify" the immutable struct)
+    @inbounds begin
+        _timings[end].time += accum_time
+    end
+    return nothing
+end
+
 @inline function enter_new_timer(frame)
     # Very first thing, stop the active timer: get the current time and add in the
     # time since it was last started to its aggregate exclusive time.
-    if length(_timings) > 0
-        stop_time = _time_ns()
-        parent_timer = _timings[end]
-        accum_time = stop_time - parent_timer.cur_start_time
-
-        # Add in accum_time
-        parent_timer.time += accum_time
+    if length(_timings) > 0 || (length(_timings) === 1 && _timings[1] === ROOTmi)
+        close_current_timer()
     end
 
     # Start the new timer right before returning

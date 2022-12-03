@@ -47,6 +47,9 @@ end
 
 _typeinf_identifier(frame::InferenceFrameInfo) = frame
 
+_typeinf_frame_linfo(frame::Core.Compiler.InferenceState) = frame.linfo
+_typeinf_frame_linfo(frame::InferenceFrameInfo) = frame.mi
+
 """
     Core.Compiler.Timings.Timing(mi_info, start_time, ...)
 
@@ -164,13 +167,13 @@ end
     # Finish the new timer
     stop_time = _time_ns()
 
-    expected_mi_info = _typeinf_identifier(_expected_frame_)
+    expected_linfo = _typeinf_frame_linfo(_expected_frame_)
 
     # Grab the new timer again because it might have been modified in _timings
     # (since it's an immutable struct)
     # And remove it from the current timings stack
     new_timer = pop!(_timings)
-    Core.Compiler.@assert new_timer.mi_info.mi === expected_mi_info.mi
+    Core.Compiler.@assert new_timer.mi_info.mi === expected_linfo
 
     # check for two cases: normal case & backcompat case
     is_profile_root_normal = length(_timings) === 0

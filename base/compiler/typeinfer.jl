@@ -24,6 +24,7 @@ module Timings
 
 using Core.Compiler: -, +, :, >, Vector, length, first, empty!, push!, pop!, @inline,
     @inbounds, copy, backtrace
+using Threads.Atomic: Atomic, atomic_add!
 
 # What we record for any given frame we infer during type inference.
 struct InferenceFrameInfo
@@ -60,7 +61,7 @@ mutable struct Timing
     mi_info::InferenceFrameInfo
     start_time::UInt64
     cur_start_time::UInt64
-    time::UInt64
+    time::Atomic{UInt64}
     children::Core.Array{Timing,1}
     bt         # backtrace collected upon initial entry to typeinf
 end
@@ -139,7 +140,7 @@ end
 
     # Add in accum_time
     @inbounds begin
-        _timings[end].time += accum_time
+        atomic_add!(_timings[end].time, accum_time)
     end
     return nothing
 end
@@ -188,7 +189,7 @@ end
 
     accum_time = stop_time - new_timer.cur_start_time
     # Add in accum_time ("modify" the immutable struct)
-    new_timer.time += accum_time
+    atomic_add!(new_timer.time, accum_time)
     if is_profile_root
         new_timer.bt = backtrace()
     end

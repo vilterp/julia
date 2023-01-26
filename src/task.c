@@ -230,6 +230,7 @@ void JL_NORETURN jl_finish_task(jl_task_t *t)
 {
     jl_task_t *ct = jl_current_task;
     JL_PROBE_RT_FINISH_TASK(ct);
+    ct->cpu_time_ns += jl_hrtime() - ct->last_scheduled_ns;
     JL_SIGATOMIC_BEGIN();
     if (jl_atomic_load_relaxed(&t->_isexception))
         jl_atomic_store_release(&t->_state, JL_TASK_STATE_FAILED);
@@ -534,6 +535,7 @@ JL_DLLEXPORT void jl_switch(void)
         jl_error("cannot switch to task running on another thread");
 
     JL_PROBE_RT_PAUSE_TASK(ct);
+    ct->cpu_time_ns += jl_hrtime() - ct->last_scheduled_ns;
 
     // Store old values on the stack and reset
     sig_atomic_t defer_signal = ptls->defer_signal;
@@ -584,6 +586,9 @@ JL_DLLEXPORT void jl_switch(void)
         jl_sigint_safepoint(ptls);
 
     JL_PROBE_RT_RUN_TASK(ct);
+    ct->last_scheduled_ns = jl_hrtime();
+
+    jl_gc_unsafe_leave(ptls, gc_state);
 }
 
 JL_DLLEXPORT void jl_switchto(jl_task_t **pt)
@@ -802,6 +807,8 @@ JL_DLLEXPORT jl_task_t *jl_new_task(jl_function_t *start, jl_value_t *completion
     jl_atomic_store_relaxed(&t->tid, t->copy_stack ? jl_atomic_load_relaxed(&ct->tid) : -1); // copy_stacks are always pinned since they can't be moved
     t->ptls = NULL;
     t->world_age = ct->world_age;
+    t->last_scheduled_ns = 0;
+    t->cpu_time_ns = 0;
 
 #ifdef COPY_STACKS
     if (!t->copy_stack) {
@@ -915,6 +922,7 @@ CFI_NORETURN
 
     ct->started = 1;
     JL_PROBE_RT_START_TASK(ct);
+    ct->last_scheduled_ns = jl_hrtime();
     if (jl_atomic_load_relaxed(&ct->_isexception)) {
         record_backtrace(ptls, 0);
         jl_push_excstack(&ct->excstack, ct->result,
@@ -1364,6 +1372,8 @@ jl_task_t *jl_init_root_task(jl_ptls_t ptls, void *stack_lo, void *stack_hi)
     ct->sticky = 1;
     ct->ptls = ptls;
     ct->world_age = 1; // OK to run Julia code on this task
+    ct->last_scheduled_ns = 0;
+    ct->cpu_time_ns = 0;
     ptls->root_task = ct;
     jl_atomic_store_relaxed(&ptls->current_task, ct);
     JL_GC_PROMISE_ROOTED(ct);

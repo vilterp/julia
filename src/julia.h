@@ -1890,8 +1890,12 @@ typedef struct _jl_task_t {
     _Atomic(uint8_t) _isexception; // set if `result` is an exception to throw or that we exited with
     // multiqueue priority
     uint16_t priority;
+    // TODO: int32 of ms instead?
+    uint64_t cpu_time_ns; // time this task has spent running; updated when it yields
 
 // hidden state:
+    // timestamp this task was last scheduled (TODO: int32 of ms instead?)
+    uint64_t last_scheduled_ns;
     // id of owning thread - does not need to be defined until the task runs
     _Atomic(int16_t) tid;
     // threadpool id
